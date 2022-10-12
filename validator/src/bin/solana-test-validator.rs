@@ -51,6 +51,9 @@ use {
 const DEFAULT_MAX_LEDGER_SHREDS: u64 = 10_000;
 
 const DEFAULT_FAUCET_SOL: f64 = 1_000_000.;
+const DEFAULT_FAUCET_TIME_SLICE_SECS: u64 = 60 * 60 * 24 * 2;
+const DEFAULT_FAUCET_PER_TIME_CAP: u64 = 1_000_000_000;
+const DEFAULT_FAUCET_PER_REQUEST_CAP: u64 = 1_000_000_000;
 
 #[derive(PartialEq, Eq)]
 enum Output {
@@ -64,6 +67,9 @@ fn main() {
     let default_faucet_port = FAUCET_PORT.to_string();
     let default_limit_ledger_size = DEFAULT_MAX_LEDGER_SHREDS.to_string();
     let default_faucet_sol = DEFAULT_FAUCET_SOL.to_string();
+    let default_faucet_time_slice_secs = DEFAULT_FAUCET_TIME_SLICE_SECS.to_string();
+    let default_faucet_per_time_cap = DEFAULT_FAUCET_PER_TIME_CAP.to_string();
+    let default_faucet_per_request_cap = DEFAULT_FAUCET_PER_REQUEST_CAP.to_string();
 
     let matches = App::new("solana-test-validator")
         .about("Test Validator")
@@ -381,6 +387,30 @@ fn main() {
                 ),
         )
         .arg(
+            Arg::with_name("faucet_time_slice")
+                .long("slice")
+                .value_name("SECS")
+                .takes_value(true)
+                .default_value(&default_faucet_time_slice_secs)
+                .help("Time slice over which to limit requests to faucet"),
+        )
+        .arg(
+            Arg::with_name("faucet_per_time_cap")
+                .long("faucet-per-time-cap")
+                .value_name("SOL")
+                .takes_value(true)
+                .default_value(&default_faucet_per_time_cap)
+                .help("Request limit for time slice, in SOL"),
+        )
+        .arg(
+            Arg::with_name("faucet_per_request_cap")
+                .long("faucet-per-request-cap")
+                .value_name("SOL")
+                .takes_value(true)
+                .default_value(&default_faucet_per_request_cap)
+                .help("Request limit for a single request, in SOL"),
+        )
+        .arg(
             Arg::with_name("geyser_plugin_config")
                 .long("geyser-plugin-config")
                 .alias("accountsdb-plugin-config")
@@ -646,7 +676,14 @@ fn main() {
 
     if let Some(faucet_addr) = &faucet_addr {
         let (sender, receiver) = unbounded();
-        run_local_faucet_with_port(faucet_keypair, sender, None, faucet_addr.port());
+        run_local_faucet_with_port(
+            faucet_keypair,
+            sender,
+            value_t!(matches, "faucet_time_slice", u64).ok(),
+            value_t!(matches, "faucet_per_time_cap", u64).ok(),
+            value_t!(matches, "faucet_per_request_cap", u64).ok(),
+            faucet_addr.port(),
+        );
         let _ = receiver.recv().expect("run faucet").unwrap_or_else(|err| {
             println!("Error: failed to start faucet: {}", err);
             exit(1);
