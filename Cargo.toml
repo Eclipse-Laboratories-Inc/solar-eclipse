@@ -94,3 +94,7 @@ exclude = [
 
 # This prevents a Travis CI error when building for Windows.
 resolver = "2"
+
+[patch.crates-io]
+solana-program-runtime = { path = "program-runtime", version = "=1.14.13" }
+solana-sdk = { path = "sdk", version = "=1.14.13" }
