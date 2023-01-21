@@ -512,6 +512,10 @@ pub mod increase_tx_account_lock_limit {
     solana_sdk::declare_id!("9LZdXeKGeBV6hRLdxS1rHbHoEUsKqesCC2ZAPTPKJAbK");
 }
 
+pub mod enable_eclipse_ibc {
+    solana_sdk::declare_id!("AUL5jWDxWbZEsJ8H7sz1zKfUhnnKB1XWoK6tHPvsaNRX");
+}
+
 pub mod check_syscall_outputs_do_not_overlap {
     solana_sdk::declare_id!("3uRVPBpyEJRo1emLCrq38eLRFGcu6uKSpUXqGvU8T7SZ");
 }
@@ -662,6 +666,7 @@ lazy_static! {
         (vote_state_update_root_fix::id(), "fix root in vote state updates #27361"),
         (return_none_for_zero_lamport_accounts::id(), "return none for zero lamport accounts #27800"),
         (increase_tx_account_lock_limit::id(), "increase tx account lock limit to 128 #27241"),
+        (enable_eclipse_ibc::id(), "enable the Eclipse IBC system program"),
         (check_syscall_outputs_do_not_overlap::id(), "check syscall outputs do_not overlap #28600"),
         (commission_updates_only_allowed_in_first_half_of_epoch::id(), "validator commission updates are only allowed in the first half of an epoch #29362"),
         (enable_turbine_fanout_experiments::id(), "enable turbine fanout experiments #29393"),
