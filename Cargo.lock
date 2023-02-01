@@ -1437,6 +1437,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abe71d579d1812060163dff96056261deb5bf6729b100fa2e36a68b9649ba3d3"
 
 [[package]]
+name = "eclipse-validator"
+version = "1.15.2"
+
+[[package]]
 name = "ed25519"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

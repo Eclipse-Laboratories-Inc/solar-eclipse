@@ -1,0 +1,19 @@
+[package]
+name = "eclipse-validator"
+version = "1.15.2"
+authors = ["Eclipse Developers"]
+edition = "2021"
+
+# cargo-deb config must live in a package's Cargo.toml
+[package.metadata.deb]
+name = "eclipse-validator"
+assets = [
+    ["target/release/solana", "usr/bin/eclipse", "755"],
+    ["target/release/solana-faucet", "usr/bin/eclipse-faucet", "755"],
+    ["target/release/solana-genesis", "usr/bin/eclipse-genesis", "755"],
+    ["target/release/solana-keygen", "usr/bin/eclipse-keygen", "755"],
+    ["target/release/solana-ledger-tool", "usr/bin/eclipse-ledger-tool", "755"],
+    ["target/release/solana-test-validator", "usr/bin/eclipse-test-validator", "755"],
+    ["target/release/solana-validator", "usr/bin/eclipse-validator", "755"],
+    ["../fetch-spl.sh", "usr/bin/fetch-spl.sh", "755"],
+]
