@@ -113,6 +113,7 @@ members = [
     "watchtower",
     "zk-keygen",
     "zk-token-sdk",
+    "eclipse-validator",
 ]
 
 exclude = [
