@@ -86,6 +86,7 @@ members = [
     "version",
     "watchtower",
     "zk-token-sdk",
+    "eclipse-validator",
 ]
 
 exclude = [
