@@ -198,12 +198,23 @@ fn main() -> Result<(), Box<dyn error::Error>> {
         .arg(
             Arg::with_name("bootstrap_stake_authorized_pubkey")
                 .long("bootstrap-stake-authorized-pubkey")
-                .value_name("BOOTSTRAP STAKE AUTHORIZED PUBKEY")
+                .value_name("BOOTSTRAP-STAKE-AUTHORIZED-PUBKEY")
                 .takes_value(true)
                 .validator(is_pubkey_or_keypair)
                 .help(
                     "Path to file containing the pubkey authorized to manage the bootstrap \
                      validator's stake [default: --bootstrap-validator IDENTITY_PUBKEY]",
+                ),
+        )
+        .arg(
+            Arg::with_name("bootstrap_authorized_withdrawer_pubkey")
+                .long("bootstrap-authorized-withdrawer-pubkey")
+                .value_name("BOOTSTRAP-AUTHORIZED-WITHDRAWER-PUBKEY")
+                .takes_value(true)
+                .validator(is_pubkey_or_keypair)
+                .help(
+                    "Path to file containing the pubkey authorized to withdraw funds from \
+                     the bootstrap vote account [default: --bootstrap-validator VOTE_PUBKEY]",
                 ),
         )
         .arg(
@@ -435,6 +446,8 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
     let bootstrap_stake_authorized_pubkey =
         pubkey_of(&matches, "bootstrap_stake_authorized_pubkey");
+    let bootstrap_authorized_withdrawer_pubkey =
+        pubkey_of(&matches, "bootstrap_authorized_withdrawer_pubkey");
     let faucet_lamports = value_t!(matches, "faucet_lamports", u64).unwrap_or(0);
     let faucet_pubkey = pubkey_of(&matches, "faucet_pubkey");
 
@@ -531,26 +544,26 @@ fn main() -> Result<(), Box<dyn error::Error>> {
 
         let vote_account = vote_state::create_account_with_authorized(
             identity_pubkey,
-            identity_pubkey,
-            identity_pubkey,
+            vote_pubkey,
+            bootstrap_authorized_withdrawer_pubkey
+                .as_ref()
+                .unwrap_or(vote_pubkey),
             commission,
             VoteState::get_rent_exempt_reserve(&rent).max(1),
         );
 
-        genesis_config.add_account(
-            *stake_pubkey,
-            stake_state::create_account(
-                bootstrap_stake_authorized_pubkey
-                    .as_ref()
-                    .unwrap_or(identity_pubkey),
-                vote_pubkey,
-                &vote_account,
-                &rent,
-                bootstrap_validator_stake_lamports,
-            ),
+        let stake_account = stake_state::create_account(
+            bootstrap_stake_authorized_pubkey
+                .as_ref()
+                .unwrap_or(identity_pubkey),
+            vote_pubkey,
+            &vote_account,
+            &rent,
+            bootstrap_validator_stake_lamports,
         );
 
         genesis_config.add_account(*vote_pubkey, vote_account);
+        genesis_config.add_account(*stake_pubkey, stake_account);
     }
 
     if let Some(creation_time) = unix_timestamp_from_rfc3339_datetime(&matches, "creation_time") {
