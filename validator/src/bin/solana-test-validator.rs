@@ -11,7 +11,7 @@ use {
     },
     solana_client::rpc_client::RpcClient,
     solana_core::tower_storage::FileTowerStorage,
-    solana_faucet::faucet::{run_local_faucet_with_port, FAUCET_PORT},
+    solana_faucet::faucet::{self, run_local_faucet_with_port, FAUCET_PORT},
     solana_rpc::{
         rpc::{JsonRpcConfig, RpcBigtableConfig},
         rpc_pubsub_service::PubSubConfig,
@@ -64,6 +64,7 @@ fn main() {
     let default_faucet_port = FAUCET_PORT.to_string();
     let default_limit_ledger_size = DEFAULT_MAX_LEDGER_SHREDS.to_string();
     let default_faucet_sol = DEFAULT_FAUCET_SOL.to_string();
+    let default_faucet_time_slice_secs = (faucet::TIME_SLICE).to_string();
 
     let matches = App::new("solana-test-validator")
         .about("Test Validator")
@@ -381,6 +382,38 @@ fn main() {
                 ),
         )
         .arg(
+            Arg::with_name("faucet_time_slice_secs")
+                .long("faucet-time-slice-secs")
+                .takes_value(true)
+                .value_name("SECS")
+                .default_value(default_faucet_time_slice_secs.as_str())
+                .help(
+                    "Time slice (in secs) over which to limit faucet requests",
+                ),
+        )
+        .arg(
+            Arg::with_name("faucet_per_time_sol_cap")
+                .long("faucet-per-time-sol-cap")
+                .takes_value(true)
+                .value_name("SOL")
+                .min_values(0)
+                .max_values(1)
+                .help(
+                    "Per-time slice limit for faucet requests, in SOL",
+                ),
+        )
+        .arg(
+            Arg::with_name("faucet_per_request_sol_cap")
+                .long("faucet-per-request-sol-cap")
+                .takes_value(true)
+                .value_name("SOL")
+                .min_values(0)
+                .max_values(1)
+                .help(
+                    "Per-request limit for faucet requests, in SOL",
+                ),
+        )
+        .arg(
             Arg::with_name("geyser_plugin_config")
                 .long("geyser-plugin-config")
                 .alias("accountsdb-plugin-config")
@@ -525,10 +558,7 @@ fn main() {
     });
     let compute_unit_limit = value_t!(matches, "compute_unit_limit", u64).ok();
 
-    let faucet_addr = Some(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)),
-        faucet_port,
-    ));
+    let faucet_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), faucet_port);
 
     let mut programs_to_load = vec![];
     if let Some(values) = matches.values_of("bpf_program") {
@@ -644,14 +674,27 @@ fn main() {
         });
     let faucet_pubkey = faucet_keypair.pubkey();
 
-    if let Some(faucet_addr) = &faucet_addr {
-        let (sender, receiver) = unbounded();
-        run_local_faucet_with_port(faucet_keypair, sender, None, faucet_addr.port());
-        let _ = receiver.recv().expect("run faucet").unwrap_or_else(|err| {
-            println!("Error: failed to start faucet: {}", err);
-            exit(1);
-        });
-    }
+    let faucet_time_slice_secs = value_t_or_exit!(matches, "faucet_time_slice_secs", u64);
+    let faucet_per_time_cap = value_t!(matches, "faucet_per_time_sol_cap", f64)
+        .ok()
+        .map(sol_to_lamports);
+    let faucet_per_request_cap = value_t!(matches, "faucet_per_request_sol_cap", f64)
+        .ok()
+        .map(sol_to_lamports);
+
+    let (sender, receiver) = unbounded();
+    run_local_faucet_with_port(
+        faucet_keypair,
+        sender,
+        Some(faucet_time_slice_secs),
+        faucet_per_time_cap,
+        faucet_per_request_cap,
+        faucet_addr.port(),
+    );
+    let _ = receiver.recv().expect("run faucet").unwrap_or_else(|err| {
+        println!("Error: failed to start faucet: {}", err);
+        exit(1);
+    });
 
     let features_to_deactivate = pubkeys_of(&matches, "deactivate_feature").unwrap_or_default();
 
@@ -740,7 +783,7 @@ fn main() {
             enable_rpc_transaction_history: true,
             enable_extended_tx_metadata_storage: true,
             rpc_bigtable_config,
-            faucet_addr,
+            faucet_addr: Some(faucet_addr),
             ..JsonRpcConfig::default_for_test()
         })
         .pubsub_config(PubSubConfig {
