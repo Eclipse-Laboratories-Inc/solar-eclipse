@@ -43,6 +43,13 @@ solana_rbpf = "=0.2.31"
 [dev-dependencies]
 solana-ledger = { path = "../../ledger", version = "=1.14.19" }
 
+[patch.crates-io]
+solana-frozen-abi = { path = "../../frozen-abi", version = "=1.14.19" }
+solana-frozen-abi-macro = { path = "../../frozen-abi/macro", version = "=1.14.19" }
+solana-program = { path = "../../sdk/program", version = "=1.14.19" }
+solana-sdk = { path = "../../sdk", version = "=1.14.19" }
+solana-zk-token-sdk = { path = "../../zk-token-sdk", version = "=1.14.19" }
+
 [[bench]]
 name = "bpf_loader"
 
