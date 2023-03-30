@@ -95,3 +95,10 @@ exclude = [
 
 # This prevents a Travis CI error when building for Windows.
 resolver = "2"
+
+[patch.crates-io]
+aes-gcm-siv = { git = "https://github.com/Eclipse-Laboratories-Inc/AEADs", branch = "v0.10.4-relax-zeroize", version = "=0.10.4" }
+curve25519-dalek = { git = "https://github.com/Eclipse-Laboratories-Inc/curve25519-dalek", branch = "v3.2.2-relax-zeroize", version = "=3.2.2" }
+solana-program = { path = "sdk/program", version = "=1.14.17" }
+solana-program-runtime = { path = "program-runtime", version = "=1.14.17" }
+solana-sdk = { path = "sdk", version = "=1.14.17" }

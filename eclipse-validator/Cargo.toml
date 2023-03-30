@@ -1,6 +1,6 @@
 [package]
 name = "eclipse-validator"
-version = "1.15.2"
+version = "1.14.17"
 authors = ["Eclipse Developers"]
 edition = "2021"
 

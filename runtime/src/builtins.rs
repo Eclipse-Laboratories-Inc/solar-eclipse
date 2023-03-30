@@ -138,6 +138,11 @@ fn genesis_builtins() -> Vec<Builtin> {
             solana_config_program::id(),
             solana_config_program::config_processor::process_instruction,
         ),
+        Builtin::new(
+            "eclipse_ibc_program",
+            eclipse_ibc_program::id(),
+            eclipse_ibc_program::process_instruction,
+        ),
     ]
 }
 
@@ -194,6 +199,16 @@ fn builtin_feature_transitions() -> Vec<BuiltinFeatureTransition> {
             ),
             feature_id: feature_set::zk_token_sdk_enabled::id(),
         },
+        /*
+        BuiltinFeatureTransition::Add {
+            builtin: Builtin::new(
+                "eclipse_ibc_program",
+                eclipse_ibc_program::id(),
+                eclipse_ibc_program::process_instruction,
+            ),
+            feature_id: feature_set::enable_eclipse_ibc::id(),
+        },
+        */
     ]
 }
 

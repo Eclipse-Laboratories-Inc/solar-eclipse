@@ -63,6 +63,10 @@ tempfile = "3.3.0"
 thiserror = "1.0"
 zstd = "0.11.2"
 
+[dependencies.eclipse-ibc-program]
+git = "https://github.com/Eclipse-Laboratories-Inc/ibc"
+version = "=0.1.0"
+
 [lib]
 crate-type = ["lib"]
 name = "solana_runtime"
