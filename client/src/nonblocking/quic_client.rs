@@ -12,8 +12,8 @@ use {
     itertools::Itertools,
     log::*,
     quinn::{
-        ClientConfig, ConnectError, ConnectionError, Endpoint, EndpointConfig, IdleTimeout,
-        NewConnection, VarInt, WriteError,
+        ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, EndpointConfig,
+        IdleTimeout, TokioRuntime, TransportConfig, VarInt, WriteError,
     },
     solana_measure::measure::Measure,
     solana_net_utils::VALIDATOR_PORT_RANGE,
@@ -112,11 +112,12 @@ impl QuicLazyInitializedEndpoint {
             QuicNewConnection::create_endpoint(EndpointConfig::default(), client_socket);
 
         let mut config = ClientConfig::new(Arc::new(crypto));
-        let transport_config = Arc::get_mut(&mut config.transport)
-            .expect("QuicLazyInitializedEndpoint::create_endpoint Arc::get_mut");
+        let mut transport_config = TransportConfig::default();
+
         let timeout = IdleTimeout::from(VarInt::from_u32(QUIC_MAX_TIMEOUT_MS));
         transport_config.max_idle_timeout(Some(timeout));
         transport_config.keep_alive_interval(Some(Duration::from_millis(QUIC_KEEP_ALIVE_MS)));
+        config.transport_config(Arc::new(transport_config));
 
         endpoint.set_default_client_config(config);
         endpoint
@@ -165,7 +166,7 @@ impl Default for QuicLazyInitializedEndpoint {
 #[derive(Clone)]
 struct QuicNewConnection {
     endpoint: Arc<Endpoint>,
-    connection: Arc<NewConnection>,
+    connection: Arc<Connection>,
 }
 
 impl QuicNewConnection {
@@ -206,9 +207,8 @@ impl QuicNewConnection {
     }
 
     fn create_endpoint(config: EndpointConfig, client_socket: UdpSocket) -> Endpoint {
-        quinn::Endpoint::new(config, None, client_socket)
+        quinn::Endpoint::new(config, None, client_socket, TokioRuntime)
             .expect("QuicNewConnection::create_endpoint quinn::Endpoint::new")
-            .0
     }
 
     // Attempts to make a faster connection by taking advantage of pre-existing key material.
@@ -217,7 +217,7 @@ impl QuicNewConnection {
         &mut self,
         addr: SocketAddr,
         stats: &ClientStats,
-    ) -> Result<Arc<NewConnection>, QuicError> {
+    ) -> Result<Arc<Connection>, QuicError> {
         let connecting = self.endpoint.connect(addr, "connect")?;
         stats.total_connections.fetch_add(1, Ordering::Relaxed);
         let connection = match connecting.into_0rtt() {
@@ -283,9 +283,9 @@ impl QuicClient {
 
     async fn _send_buffer_using_conn(
         data: &[u8],
-        connection: &NewConnection,
+        connection: &Connection,
     ) -> Result<(), QuicError> {
-        let mut send_stream = connection.connection.open_uni().await?;
+        let mut send_stream = connection.open_uni().await?;
 
         send_stream.write_all(data).await?;
         send_stream.finish().await?;
@@ -299,7 +299,7 @@ impl QuicClient {
         data: &[u8],
         stats: &ClientStats,
         connection_stats: Arc<ConnectionCacheStats>,
-    ) -> Result<Arc<NewConnection>, QuicError> {
+    ) -> Result<Arc<Connection>, QuicError> {
         let mut connection_try_count = 0;
         let mut last_connection_id = 0;
         let mut last_error = None;
@@ -311,7 +311,7 @@ impl QuicClient {
                 let maybe_conn = conn_guard.as_mut();
                 match maybe_conn {
                     Some(conn) => {
-                        if conn.connection.connection.stable_id() == last_connection_id {
+                        if conn.connection.stable_id() == last_connection_id {
                             // this is the problematic connection we had used before, create a new one
                             let conn = conn.make_connection_0rtt(self.addr, stats).await;
                             match conn {
@@ -319,7 +319,7 @@ impl QuicClient {
                                     info!(
                                         "Made 0rtt connection to {} with id {} try_count {}, last_connection_id: {}, last_error: {:?}",
                                         self.addr,
-                                        conn.connection.stable_id(),
+                                        conn.stable_id(),
                                         connection_try_count,
                                         last_connection_id,
                                         last_error,
@@ -353,7 +353,7 @@ impl QuicClient {
                                 info!(
                                     "Made connection to {} id {} try_count {}",
                                     self.addr,
-                                    conn.connection.connection.stable_id(),
+                                    conn.connection.stable_id(),
                                     connection_try_count
                                 );
                                 connection_try_count += 1;
@@ -368,7 +368,7 @@ impl QuicClient {
                 }
             };
 
-            let new_stats = connection.connection.stats();
+            let new_stats = connection.stats();
 
             connection_stats
                 .total_client_stats
@@ -396,7 +396,7 @@ impl QuicClient {
                 .tx_acks
                 .update_stat(&self.stats.tx_acks, new_stats.frame_tx.acks);
 
-            last_connection_id = connection.connection.stable_id();
+            last_connection_id = connection.stable_id();
             match Self::_send_buffer_using_conn(data, &connection).await {
                 Ok(()) => {
                     return Ok(connection);
@@ -409,7 +409,7 @@ impl QuicClient {
                         info!(
                             "Error sending to {} with id {}, error {:?} thread: {:?}",
                             self.addr,
-                            connection.connection.stable_id(),
+                            connection.stable_id(),
                             err,
                             thread::current().id(),
                         );
@@ -472,7 +472,7 @@ impl QuicClient {
 
         // Used to avoid dereferencing the Arc multiple times below
         // by just getting a reference to the NewConnection once
-        let connection_ref: &NewConnection = &connection;
+        let connection_ref: &Connection = &connection;
 
         let chunks = buffers[1..buffers.len()].iter().chunks(self.chunk_size);
 
