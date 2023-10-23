@@ -5130,6 +5130,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-bls12-381-tests"
+version = "0.1.0"
+dependencies = [
+ "assert_matches",
+ "rand 0.7.3",
+ "solana-program-test",
+ "solana-sdk 1.15.2",
+]
+
+[[package]]
 name = "solana-bpf-loader-program"
 version = "1.16.14"
 dependencies = [
