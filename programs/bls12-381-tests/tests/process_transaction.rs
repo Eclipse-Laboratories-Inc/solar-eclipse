@@ -1,13 +1,13 @@
-use assert_matches::assert_matches;
-use rand::thread_rng;
-use solana_program_test::*;
-use solana_sdk::{
-    bls12_381_instruction::new_bls_12_381_instruction,
-    bls12_381_instruction::generate_key, 
-	signature::Signer,
-    transaction::{Transaction, TransactionError},
+use {
+    assert_matches::assert_matches,
+    rand::thread_rng,
+    solana_program_test::*,
+    solana_sdk::{
+        bls12_381_instruction::{generate_key, new_bls_12_381_instruction},
+        signature::Signer,
+        transaction::{Transaction, TransactionError},
+    },
 };
-
 
 #[tokio::test]
 async fn test_success() {
