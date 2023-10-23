@@ -272,6 +272,7 @@ impl TransactionContext {
             }
         }
         {
+            #[allow(unused_mut)]
             let mut instruction_context = self.get_next_instruction_context()?;
             instruction_context.nesting_level = nesting_level;
             instruction_context.instruction_accounts_lamport_sum =

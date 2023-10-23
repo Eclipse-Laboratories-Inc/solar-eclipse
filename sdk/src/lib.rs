@@ -56,6 +56,7 @@ pub use solana_program::{
 
 pub mod account;
 pub mod account_utils;
+pub mod bls12_381_instruction;
 pub mod builtins;
 pub mod client;
 pub mod commitment_config;
