@@ -3,7 +3,8 @@ use rand::thread_rng;
 use solana_program_test::*;
 use solana_sdk::{
     bls12_381_instruction::new_bls_12_381_instruction,
-    signature::Signer,
+    bls12_381_instruction::generate_key, 
+	signature::Signer,
     transaction::{Transaction, TransactionError},
 };
 
@@ -16,7 +17,7 @@ async fn test_success() {
     let payer = &context.payer;
     let recent_blockhash = context.last_blockhash;
 
-    let privkey = bls12_381_instruction::generate_key(&mut thread_rng());
+    let privkey = generate_key(&mut thread_rng());
     let message_arr = b"hello";
     let instruction = new_bls_12_381_instruction(&privkey, message_arr);
 
