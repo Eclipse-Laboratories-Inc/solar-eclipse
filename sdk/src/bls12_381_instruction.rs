@@ -1,9 +1,12 @@
 #![warn(missing_docs)]
 //! This module is a port of Hyperledger Ursa's built-in BLS
-//! sig-verify. Only a single key verification is implemented at this
-//! point.
+//! signature-verify. Only a single key verification is implemented at
+//! this point.
 
-use pair::{G1Affine, G2Affine, GroupOrderElement};
+use {
+    amcl::bn254::big::BIG,
+    pair::{G1Affine, G2Affine, GroupOrderElement},
+};
 
 /// The length of private (or secret) keys.
 pub const SECRET_KEY_LENGTH: usize = 32;
@@ -13,7 +16,7 @@ pub mod pair {
     //! along the elliptic curves in affine coordinates. The idea
     //! being that there are points fixed by some algorithm (and known
     //! to all parties) which pair up and allow one to navigate the
-    //! elliptic curve. The ED-family of curves fix one of tyhe points
+    //! elliptic curve. The ED-family of curves fix one of the points
     //! to be the Edwards point, however the BLS12 family do not have
     //! that. This module is relevant to handling the pairs of points
     //! and affine coordinate locations. For simplicity it can be
@@ -73,7 +76,7 @@ pub mod pair {
             }
         }
 
-        /// Generate a [`Self`] using a seed phrase or set of bytes. The length of the slice must be exactly the lenght of [`MODBYTES`].
+        /// Generate a [`Self`] using a seed phrase or set of bytes. The length of the slice must be exactly the length of [`MODBYTES`].
         pub fn seeded(seed: &[u8]) -> Result<GroupOrderElement, Error> {
             if seed.len() != MODBYTES {
                 // goof::Mismatch{expect: Self::BYTES_REPR_SIZE, actual: seed.len()}
@@ -102,7 +105,7 @@ pub mod pair {
         /// # Errors
         /// - If `bytes.len()` is longer than [`Self::BYTES_REPR_SIZE`]
         pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
-            // TODO: this was copied from Hyperledger ursa, but it extremely confusing and ugly. Refactor.
+            // TODO: this was copied from Hyperledger Ursa, but it extremely confusing and ugly. Refactor.
             if bytes.len() > Self::BYTES_REPR_SIZE {
                 todo!()
             } else {
@@ -248,7 +251,7 @@ impl From<GroupOrderElement> for SignKey {
 
 impl SignKey {
     /// Construct [`self`] from a seed.
-    pub fn new(seed: Option<&[u8]>) -> Result<SignKey, Error> {
+    pub fn new(seed: Option<&[u8]>) -> Result<Self, Error> {
         Ok(seed
             .map(GroupOrderElement::seeded)
             .unwrap_or_else(|| Ok(GroupOrderElement::new()))?
@@ -286,13 +289,49 @@ impl GeneratorPoint {
             point: G2Affine::new(),
         }
     }
+
+    /// Construct [`Self`] from a seed.
+    pub fn seeded(seed: &mut [u8]) -> Result<Self, Error> {
+        use amcl::bn254::ecp2::ECP2;
+
+        let randnum = {
+            let mut rng = rand::thread_rng();
+            rand::RngCore::fill_bytes(&mut rng, seed);
+            let mut rng = amcl::rand::RAND::new();
+            rng.clean();
+            rng.seed(seed.len(), &seed);
+            amcl::bn254::big::BIG::randomnum(
+                &amcl::bn254::big::BIG::new_ints(&amcl::bn254::rom::CURVE_ORDER),
+                &mut rng,
+            )
+        };
+        let point = {
+            let point_x = {
+                let point_xa = BIG::new_ints(&amcl::bn254::rom::CURVE_PXA);
+                let point_xb = BIG::new_ints(&amcl::bn254::rom::CURVE_PXB);
+                amcl::bn254::fp2::FP2::new_bigs(&point_xa, &point_xb)
+            };
+
+            let point_y = {
+                let point_ya = BIG::new_ints(&amcl::bn254::rom::CURVE_PYA);
+                let point_yb = BIG::new_ints(&amcl::bn254::rom::CURVE_PYB);
+                amcl::bn254::fp2::FP2::new_bigs(&point_ya, &point_yb)
+            };
+
+            G2Affine(amcl::bn254::pair::g2mul(
+                &ECP2::new_fp2s(&point_x, &point_y),
+                &randnum,
+            ))
+        };
+
+        Ok(Self { point })
+    }
 }
 
 /// The structure that represents a signature on the BLS12 elliptic curve.
 #[derive(Debug)]
 pub struct Signature {
     pub(crate) point: G1Affine,
-    // bytes: Vec<u8>,
 }
 
 impl Signature {
@@ -332,6 +371,37 @@ pub struct KeyPair {
     pub verify: VerKey,
 }
 
+impl KeyPair {
+    ///  Create a new key-pair, given seed and generator point seed
+    ///
+    /// # Explanation
+    ///
+    /// Elliptic curves are parameterised as 1D objects in something
+    /// called affine coordinates, that means that a single integer is
+    /// enough to determine the position on the curve. While the
+    /// Edwards family of curves has a natural choice for an origin --
+    /// the Edwards point, the BLS family has an additional degree of
+    /// freedom, so in addition to using a `seed` one must also
+    /// specify a generator point. Best way to do so is to use a
+    /// `128`-bit seed phrase, which can be anything, but it is my
+    /// personal recommendation to use something meaningful to the
+    /// Solana library.
+    ///
+    /// The `private_key_seed` is something else, but we would
+    /// recommend enough seed information to produce a similarly
+    /// strong object.
+    pub fn new(generator_point: GeneratorPoint) -> Result<Self, Error> {
+        let sign = {
+            let mut private_key_seed = vec![0; amcl::bn254::rom::MODBYTES];
+            let mut rng = rand::thread_rng();
+            rand::RngCore::fill_bytes(&mut rng, &mut private_key_seed);
+            SignKey::new(Some(&private_key_seed))?
+        };
+        let verify = VerKey::new(generator_point, &sign)?;
+        Ok(Self { sign, verify })
+    }
+}
+
 pub mod instruction {
     //! Solana integration.
 
@@ -348,13 +418,20 @@ pub mod instruction {
 
 pub use instruction::new_bls_12_381_instruction;
 
-/// Public function to generate a key-pair given a specific thread rng.
-pub fn generate_key(rng: &mut rand::rngs::ThreadRng) -> KeyPair {
-    todo!()
+impl Default for GeneratorPoint {
+    fn default() -> Self {
+        Self {
+            point: Default::default(),
+        }
+    }
 }
+
+/// Public function to generate a key-pair given a specific thread RNG.
+pub fn generate_key() -> KeyPair {}
 
 // Local Variables:
 // mode: rust-ts
 // eval: (apheleia-mode)
 // eval: (aggressive-indent-mode)
+// jinx-local-words: "Hyperledger amcl deserialize hasher isunity len sig struct"
 // End:
