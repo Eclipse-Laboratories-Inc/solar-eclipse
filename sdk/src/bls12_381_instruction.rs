@@ -4,10 +4,9 @@
 //! this point.
 
 use {
-    amcl::bn254::big::BIG,
+    amcl::bn254::{big::BIG, ecp2::ECP2, fp2::FP2, rom},
     pair::{G1Affine, G2Affine, GroupOrderElement},
 };
-
 /// The length of private (or secret) keys.
 pub const SECRET_KEY_LENGTH: usize = 32;
 
@@ -29,6 +28,7 @@ pub mod pair {
             ecp::ECP,
             ecp2::ECP2,
             fp2::FP2,
+            pair::{g1mul, g2mul},
             rom::{CURVE_ORDER, CURVE_PXA, CURVE_PXB, CURVE_PYA, CURVE_PYB, MODBYTES},
         },
     };
@@ -78,18 +78,14 @@ pub mod pair {
 
         /// Generate a [`Self`] using a seed phrase or set of bytes. The length of the slice must be exactly the length of [`MODBYTES`].
         pub fn seeded(seed: &[u8]) -> Result<GroupOrderElement, Error> {
-            if seed.len() != MODBYTES {
-                // goof::Mismatch{expect: Self::BYTES_REPR_SIZE, actual: seed.len()}
-                todo!()
-            } else {
-                // TODO: Consider a separate `struct Seed`
-                let mut rng = amcl::rand::RAND::new();
-                rng.clean();
-                rng.seed(seed.len(), seed);
-                Ok(GroupOrderElement {
-                    bignum: BIG::randomnum(&BIG::new_ints(&CURVE_ORDER), &mut rng),
-                })
-            }
+            goof::assert_eq(&seed.len(), &MODBYTES)?;
+            // TODO: Consider a separate `struct Seed`
+            let mut rng = amcl::rand::RAND::new();
+            rng.clean();
+            rng.seed(seed.len(), seed);
+            Ok(GroupOrderElement {
+                bignum: BIG::randomnum(&BIG::new_ints(&CURVE_ORDER), &mut rng),
+            })
         }
 
         /// Convert into a fixed-size bytes representation (that is for some reason passed as a vector).
@@ -174,7 +170,7 @@ pub mod pair {
         /// Group multiplication of [`self`] and another group element.
         pub fn mul(&self, element: &GroupOrderElement) -> G1Affine {
             let mut bn: BIG = element.bignum;
-            Self(amcl::bn254::pair::g1mul(&self.0, &mut bn))
+            Self(g1mul(&self.0, &mut bn))
         }
     }
 
@@ -201,7 +197,7 @@ pub mod pair {
 
             let gen_g2 = ECP2::new_fp2s(&point_x, &point_y);
 
-            let point = amcl::bn254::pair::g2mul(&gen_g2, &random_mod_order());
+            let point = g2mul(&gen_g2, &random_mod_order());
 
             Self(point)
         }
@@ -210,15 +206,26 @@ pub mod pair {
         pub fn mul(&self, goe: &GroupOrderElement) -> Self {
             let r = self.0;
             let bn = goe.bignum;
-            Self(amcl::bn254::pair::g2mul(&r, &bn))
+            Self(g2mul(&r, &bn))
         }
     }
 }
 
 /// The main Error type used in this crate.
+#[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// The Seed length is not the right length for what it should be
+    #[error("The seed length is incorrect. {0}")]
+    SeedLength(Mismatch<usize>),
     /// Other error variant that is not listed above.
+    #[error("The programmer was too lazy to provide the error message")]
     Other(&'static str),
+}
+
+impl From<Mismatch<usize>> for Error {
+    fn from(value: Mismatch<usize>) -> Self {
+        Self::SeedLength(value)
+    }
 }
 
 /// The **Public Key** equivalent for the BLS12-381 cryptography.
@@ -292,30 +299,25 @@ impl GeneratorPoint {
 
     /// Construct [`Self`] from a seed.
     pub fn seeded(seed: &mut [u8]) -> Result<Self, Error> {
-        use amcl::bn254::ecp2::ECP2;
-
         let randnum = {
             let mut rng = rand::thread_rng();
             rand::RngCore::fill_bytes(&mut rng, seed);
             let mut rng = amcl::rand::RAND::new();
             rng.clean();
             rng.seed(seed.len(), &seed);
-            amcl::bn254::big::BIG::randomnum(
-                &amcl::bn254::big::BIG::new_ints(&amcl::bn254::rom::CURVE_ORDER),
-                &mut rng,
-            )
+            BIG::randomnum(&BIG::new_ints(&rom::CURVE_ORDER), &mut rng)
         };
         let point = {
             let point_x = {
-                let point_xa = BIG::new_ints(&amcl::bn254::rom::CURVE_PXA);
-                let point_xb = BIG::new_ints(&amcl::bn254::rom::CURVE_PXB);
-                amcl::bn254::fp2::FP2::new_bigs(&point_xa, &point_xb)
+                let point_xa = BIG::new_ints(&rom::CURVE_PXA);
+                let point_xb = BIG::new_ints(&rom::CURVE_PXB);
+                FP2::new_bigs(&point_xa, &point_xb)
             };
 
             let point_y = {
-                let point_ya = BIG::new_ints(&amcl::bn254::rom::CURVE_PYA);
-                let point_yb = BIG::new_ints(&amcl::bn254::rom::CURVE_PYB);
-                amcl::bn254::fp2::FP2::new_bigs(&point_ya, &point_yb)
+                let point_ya = BIG::new_ints(&rom::CURVE_PYA);
+                let point_yb = BIG::new_ints(&rom::CURVE_PYB);
+                FP2::new_bigs(&point_ya, &point_yb)
             };
 
             G2Affine(amcl::bn254::pair::g2mul(
@@ -416,18 +418,17 @@ pub mod instruction {
     }
 }
 
+use goof::Mismatch;
 pub use instruction::new_bls_12_381_instruction;
 
-impl Default for GeneratorPoint {
-    fn default() -> Self {
-        Self {
-            point: Default::default(),
-        }
-    }
-}
+// impl Default for GeneratorPoint {
+//     fn default() -> Self {}
+// }
 
 /// Public function to generate a key-pair given a specific thread RNG.
-pub fn generate_key() -> KeyPair {}
+pub fn generate_key() -> KeyPair {
+    todo!()
+}
 
 // Local Variables:
 // mode: rust-ts
