@@ -1,14 +1,51 @@
-#![warn(missing_docs)]
+#![warn(missing_docs, clippy::suspicious, clippy::pedantic)]
+#![allow(clippy::new_without_default)] // `Default` is a very different notion. It should always return the same value.
+#![allow(clippy::module_name_repetitions, clippy::wildcard_imports)]
 //! This module is a port of Hyperledger Ursa's built-in BLS
 //! signature-verify. Only a single key verification is implemented at
 //! this point.
 
+pub use instruction::new_bls_12_381_instruction;
 use {
-    amcl::bn254::{big::BIG, ecp2::ECP2, fp2::FP2, rom},
+    self::pair::GeneratorPoint,
+    goof::{Mismatch, Outside},
     pair::{G1Affine, G2Affine, GroupOrderElement},
 };
 /// The length of private (or secret) keys.
 pub const SECRET_KEY_LENGTH: usize = 32;
+
+/// Public function to generate a key-pair given a specific thread RNG.
+///
+/// # Errors
+/// - Forwards [`GeneratorPoint::default`] failure
+pub fn generate_key() -> Result<KeyPair, Error> {
+    KeyPair::new(GeneratorPoint::default())
+}
+
+/// A pair of keys. You usually want to generate this rather than the [`SignKey`]
+pub struct KeyPair {
+    /// The private key
+    pub sign: SignKey,
+    /// The public key
+    pub verify: VerKey,
+}
+
+/// The **Public Key** equivalent for the BLS12-381 cryptography.
+pub struct VerKey {
+    pub(crate) point: G2Affine,
+}
+
+/// The **Private key** equivalent for the BLS12-381 cryptography.
+pub struct SignKey {
+    group_order_element: GroupOrderElement,
+    bytes: Vec<u8>,
+}
+
+/// The structure that represents a signature on the BLS12 elliptic curve.
+#[derive(Debug)]
+pub struct Signature {
+    pub(crate) point: G1Affine,
+}
 
 pub mod pair {
     //! The elliptic curve cryptography at its core is about moving
@@ -29,7 +66,7 @@ pub mod pair {
             ecp2::ECP2,
             fp2::FP2,
             pair::{g1mul, g2mul},
-            rom::{CURVE_ORDER, CURVE_PXA, CURVE_PXB, CURVE_PYA, CURVE_PYB, MODBYTES},
+            rom::{self, CURVE_ORDER, CURVE_PXA, CURVE_PXB, CURVE_PYA, CURVE_PYB, MODBYTES},
         },
     };
 
@@ -38,11 +75,12 @@ pub mod pair {
     pub struct Pair(pub(crate) amcl::bn254::fp12::FP12);
 
     impl Pair {
-        /// The equivalent of of performing the operation \(e(PointG1,
-        /// PointG2, PointG1_1, PointG2_1)\) it should yield a
+        /// The equivalent of of performing the operation `e(PointG1,
+        /// PointG2, PointG1_1, PointG2_1)` it should yield a
         /// co-ordinate transformation that is closed under the group
         /// operations, as such it is used for verification using the
         /// [`amcl::bn254::pair::isunity`] function.
+        #[must_use]
         pub fn pair2(p: &G1Affine, q: &G2Affine, r: &G1Affine, s: &G2Affine) -> Self {
             let mut result =
                 amcl::bn254::pair::fexp(&amcl::bn254::pair::ate2(&q.0, &p.0, &s.0, &r.0));
@@ -53,6 +91,9 @@ pub mod pair {
     }
 
     /// Wrapper for using a hash and generating a `G1` family of group elements from a generic [`hasher`]
+    ///
+    /// # Errors
+    /// - Forwards [`G1Affine::from_hash`] failure
     pub fn hash<T: sha2::Digest>(message: &[u8], mut hasher: T) -> Result<G1Affine, Error> {
         hasher.update(message);
         G1Affine::from_hash(hasher.finalize().as_slice())
@@ -61,6 +102,7 @@ pub mod pair {
     /// The group element in the BLS12 affine coordinates. If this
     /// tells you nothing, consider not touching objects of this type.
     #[derive(Clone, Copy, PartialEq, Eq)]
+    #[must_use]
     pub struct GroupOrderElement {
         bignum: BIG,
     }
@@ -76,7 +118,12 @@ pub mod pair {
             }
         }
 
-        /// Generate a [`Self`] using a seed phrase or set of bytes. The length of the slice must be exactly the length of [`MODBYTES`].
+        /// Generate a [`Self`] using a seed phrase or set of
+        /// bytes.
+        ///
+        /// # Errors
+        ///
+        /// The length of the slice must be exactly [`MODBYTES`].
         pub fn seeded(seed: &[u8]) -> Result<GroupOrderElement, Error> {
             goof::assert_eq(&seed.len(), &MODBYTES)?;
             // TODO: Consider a separate `struct Seed`
@@ -89,7 +136,8 @@ pub mod pair {
         }
 
         /// Convert into a fixed-size bytes representation (that is for some reason passed as a vector).
-        pub fn to_bytes(&self) -> Vec<u8> {
+        #[must_use]
+        pub fn to_byte_vec(&self) -> Vec<u8> {
             let mut bn = self.bignum;
             let mut vec = vec![0u8; Self::BYTES_REPR_SIZE];
             bn.tobytes(&mut vec);
@@ -110,9 +158,9 @@ pub mod pair {
                 let diff = MODBYTES - len;
                 let mut result = vec![0; diff];
                 result.append(&mut vec);
-                return Ok(GroupOrderElement {
+                Ok(GroupOrderElement {
                     bignum: BIG::frombytes(&result),
-                });
+                })
             } else {
                 Ok(GroupOrderElement {
                     bignum: BIG::frombytes(bytes),
@@ -126,6 +174,7 @@ pub mod pair {
     ///
     /// # Security
     /// Relies on [`rand`], and inherits all of the CVEs from that library.
+    #[must_use]
     pub fn random_mod_order() -> BIG {
         use rand::RngCore as _;
 
@@ -141,11 +190,13 @@ pub mod pair {
     }
 
     /// An element of the `G1` group, represented in Affine coordinates via the [`amcl`] library.
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    #[must_use]
     pub struct G1Affine(pub(crate) ECP);
 
     /// An element of the `G2` group represented in Affine coordinates via the [`amcl`] library.
-    #[derive(Debug, Clone, Copy)]
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    #[must_use]
     pub struct G2Affine(pub(crate) ECP2);
 
     impl G1Affine {
@@ -171,26 +222,32 @@ pub mod pair {
         }
     }
 
-    impl G2Affine {
-        /// Fixed size representation length of the object.
-        pub const BYTES_REPR_SIZE: usize = MODBYTES * 4;
+    impl core::ops::Neg for G2Affine {
+        type Output = Self;
 
-        /// Unary group negation for `G2`.
-        pub fn neg(self) -> Self {
+        fn neg(self) -> Self::Output {
             let mut r = self.0;
             r.neg();
             Self(r)
         }
+    }
+
+    impl G2Affine {
+        /// Fixed size representation length of the object.
+        pub const BYTES_REPR_SIZE: usize = MODBYTES * 4;
 
         /// Create a new random `G2` group element.
         pub fn new() -> G2Affine {
-            let point_xa = BIG::new_ints(&CURVE_PXA);
-            let point_xb = BIG::new_ints(&CURVE_PXB);
-            let point_ya = BIG::new_ints(&CURVE_PYA);
-            let point_yb = BIG::new_ints(&CURVE_PYB);
-
-            let point_x = FP2::new_bigs(&point_xa, &point_xb);
-            let point_y = FP2::new_bigs(&point_ya, &point_yb);
+            let point_x = {
+                let point_x_a = BIG::new_ints(&CURVE_PXA);
+                let point_x_b = BIG::new_ints(&CURVE_PXB);
+                FP2::new_bigs(&point_x_a, &point_x_b)
+            };
+            let point_y = {
+                let point_y_a = BIG::new_ints(&CURVE_PYA);
+                let point_y_b = BIG::new_ints(&CURVE_PYB);
+                FP2::new_bigs(&point_y_a, &point_y_b)
+            };
 
             let gen_g2 = ECP2::new_fp2s(&point_x, &point_y);
 
@@ -200,10 +257,65 @@ pub mod pair {
         }
 
         /// Group multiplication under `G2`.
-        pub fn mul(&self, goe: &GroupOrderElement) -> Self {
+        pub fn group_mul(&self, goe: &GroupOrderElement) -> Self {
             let r = self.0;
             let bn = goe.bignum;
             Self(g2mul(&r, &bn))
+        }
+    }
+
+    /// The point that must be known to all parties in order for the Elliptic curve cryptography to be useful
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct GeneratorPoint {
+        pub(crate) point: G2Affine,
+    }
+
+    impl Default for GeneratorPoint {
+        fn default() -> Self {
+            let mut seed = vec![0_u8; 128];
+            Self::seeded(&mut seed)
+        }
+    }
+
+    impl GeneratorPoint {
+        /// Construct [`self`] using a random `G2` element.
+        #[must_use]
+        pub fn new() -> Self {
+            Self {
+                point: G2Affine::new(),
+            }
+        }
+
+        /// Construct [`Self`] from a seed.
+        pub fn seeded(seed: &mut [u8]) -> Self {
+            let randnum = {
+                let mut rng = rand::thread_rng();
+                rand::RngCore::fill_bytes(&mut rng, seed);
+                let mut rng = amcl::rand::RAND::new();
+                rng.clean();
+                rng.seed(seed.len(), seed);
+                BIG::randomnum(&BIG::new_ints(&rom::CURVE_ORDER), &mut rng)
+            };
+            let point = {
+                let point_x = {
+                    let point_x_a = BIG::new_ints(&rom::CURVE_PXA);
+                    let point_x_b = BIG::new_ints(&rom::CURVE_PXB);
+                    FP2::new_bigs(&point_x_a, &point_x_b)
+                };
+
+                let point_y = {
+                    let point_y_a = BIG::new_ints(&rom::CURVE_PYA);
+                    let point_y_b = BIG::new_ints(&rom::CURVE_PYB);
+                    FP2::new_bigs(&point_y_a, &point_y_b)
+                };
+
+                G2Affine(amcl::bn254::pair::g2mul(
+                    &ECP2::new_fp2s(&point_x, &point_y),
+                    &randnum,
+                ))
+            };
+
+            Self { point }
         }
     }
 }
@@ -231,23 +343,15 @@ impl From<Mismatch<usize>> for Error {
     }
 }
 
-/// The **Public Key** equivalent for the BLS12-381 cryptography.
-pub struct VerKey {
-    pub(crate) point: G2Affine,
-}
-
 impl VerKey {
     /// Construct [`Self`]
-    pub fn new(generator_point: GeneratorPoint, sign_key: &SignKey) -> Result<Self, Error> {
-        let point = generator_point.point.mul(&sign_key.group_order_element);
-        Ok(VerKey { point })
+    #[must_use]
+    pub fn new(generator_point: GeneratorPoint, sign_key: &SignKey) -> Self {
+        let point = generator_point
+            .point
+            .group_mul(&sign_key.group_order_element);
+        VerKey { point }
     }
-}
-
-/// The **Private key** equivalent for the BLS12-381 cryptography.
-pub struct SignKey {
-    group_order_element: GroupOrderElement,
-    bytes: Vec<u8>,
 }
 
 impl core::fmt::Debug for SignKey {
@@ -262,26 +366,32 @@ impl From<GroupOrderElement> for SignKey {
     fn from(group_order_element: GroupOrderElement) -> Self {
         Self {
             group_order_element,
-            bytes: group_order_element.to_bytes(),
+            bytes: group_order_element.to_byte_vec(),
         }
     }
 }
 
 impl SignKey {
     /// Construct [`self`] from a seed.
+    ///
+    /// # Errors
+    /// - Forwards [`GroupOrderElement::seeded`] failure
     pub fn new(seed: Option<&[u8]>) -> Result<Self, Error> {
         Ok(seed
-            .map(GroupOrderElement::seeded)
-            .unwrap_or_else(|| Ok(GroupOrderElement::new()))?
+            .map_or_else(|| Ok(GroupOrderElement::new()), GroupOrderElement::seeded)?
             .into())
     }
 
     /// View [`self`] as `&[u8]`.
+    #[must_use]
     pub fn as_bytes(&self) -> &[u8] {
         self.bytes.as_slice()
     }
 
     /// Construct [`Self`] from a raw byte representation.
+    ///
+    /// # Errors
+    /// - Forwards [`GroupOrderElement::from_bytes`] failure
     pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, Error> {
         let group_order_element = GroupOrderElement::from_bytes(&bytes)?;
         Ok(Self {
@@ -304,59 +414,6 @@ impl SignKey {
     }
 }
 
-/// The point that must be known to all parties in order for the Elliptic curve cryptography to be useful
-#[derive(Clone, Copy, Debug)]
-pub struct GeneratorPoint {
-    point: G2Affine,
-}
-
-impl GeneratorPoint {
-    /// Construct [`self`] using a random `G2` element.
-    pub fn new() -> Self {
-        Self {
-            point: G2Affine::new(),
-        }
-    }
-
-    /// Construct [`Self`] from a seed.
-    pub fn seeded(seed: &mut [u8]) -> Result<Self, Error> {
-        let randnum = {
-            let mut rng = rand::thread_rng();
-            rand::RngCore::fill_bytes(&mut rng, seed);
-            let mut rng = amcl::rand::RAND::new();
-            rng.clean();
-            rng.seed(seed.len(), &seed);
-            BIG::randomnum(&BIG::new_ints(&rom::CURVE_ORDER), &mut rng)
-        };
-        let point = {
-            let point_x = {
-                let point_xa = BIG::new_ints(&rom::CURVE_PXA);
-                let point_xb = BIG::new_ints(&rom::CURVE_PXB);
-                FP2::new_bigs(&point_xa, &point_xb)
-            };
-
-            let point_y = {
-                let point_ya = BIG::new_ints(&rom::CURVE_PYA);
-                let point_yb = BIG::new_ints(&rom::CURVE_PYB);
-                FP2::new_bigs(&point_ya, &point_yb)
-            };
-
-            G2Affine(amcl::bn254::pair::g2mul(
-                &ECP2::new_fp2s(&point_x, &point_y),
-                &randnum,
-            ))
-        };
-
-        Ok(Self { point })
-    }
-}
-
-/// The structure that represents a signature on the BLS12 elliptic curve.
-#[derive(Debug)]
-pub struct Signature {
-    pub(crate) point: G1Affine,
-}
-
 impl Signature {
     /// Verify the BLS12-381 signature provided the following data:
     ///
@@ -367,6 +424,9 @@ impl Signature {
     ///
     /// It is assumed that the `message`, and `generator` are both
     /// known to all parties.
+    ///
+    /// # Errors
+    /// - Forwards errors from [`pair::hash`]
     pub fn verify(
         &self,
         message: &[u8],
@@ -377,21 +437,13 @@ impl Signature {
         Ok(amcl::bn254::fp12::FP12::isunity(
             &pair::Pair::pair2(
                 &self.point,
-                &generator.point.neg(),
+                &core::ops::Neg::neg(generator.point),
                 &hashpoint,
                 &verification_key.point,
             )
             .0,
         ))
     }
-}
-
-/// A pair of keys. You usually want to generate this rather than the [`SignKey`]
-pub struct KeyPair {
-    /// The private key
-    pub sign: SignKey,
-    /// The public key
-    pub verify: VerKey,
 }
 
 impl KeyPair {
@@ -413,6 +465,10 @@ impl KeyPair {
     /// The `private_key_seed` is something else, but we would
     /// recommend enough seed information to produce a similarly
     /// strong object.
+    ///
+    /// # Errors
+    ///
+    /// - Forwards [`SignKey::new`] failure
     pub fn new(generator_point: GeneratorPoint) -> Result<Self, Error> {
         let sign = {
             let mut private_key_seed = vec![0; amcl::bn254::rom::MODBYTES];
@@ -420,7 +476,7 @@ impl KeyPair {
             rand::RngCore::fill_bytes(&mut rng, &mut private_key_seed);
             SignKey::new(Some(&private_key_seed))?
         };
-        let verify = VerKey::new(generator_point, &sign)?;
+        let verify = VerKey::new(generator_point, &sign);
         Ok(Self { sign, verify })
     }
 }
@@ -431,24 +487,13 @@ pub mod instruction {
     use super::*;
 
     /// Construct an instruction to be used by Solana programs.
+    #[must_use]
     pub fn new_bls_12_381_instruction(
         key: &KeyPair,
         thing: &[u8],
     ) -> crate::instruction::Instruction {
         todo!()
     }
-}
-
-use goof::{Mismatch, Outside};
-pub use instruction::new_bls_12_381_instruction;
-
-// impl Default for GeneratorPoint {4
-//     fn default() -> Self {}
-// }
-
-/// Public function to generate a key-pair given a specific thread RNG.
-pub fn generate_key() -> KeyPair {
-    todo!()
 }
 
 #[cfg(test)]
@@ -461,6 +506,12 @@ mod test {
         let bytes = sign_key.as_bytes();
         assert!(!bytes.is_empty());
         assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    fn generator_point_crypto_safe() {
+        let gen = GeneratorPoint::new();
+        assert!(gen != GeneratorPoint::default(), "If you managed to recreate the default generator point, then the cryptographic assumptions are false, and this is no longer cryptographically safe. ");
     }
 
     #[test]
@@ -501,8 +552,8 @@ mod test {
         let different_gen_signature = sign_key.sign(&message).unwrap();
         assert!(
             !different_gen_signature
-            .verify(&message, &ver_key, different_gen)
-            .unwrap(),
+                .verify(&message, &ver_key, different_gen)
+                .unwrap(),
             "Different generator points cannot be paired post-hoc."
         );
 

@@ -2030,6 +2030,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "goof"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a69bc37c4d166ce7e7a6b48826974cb790db7657a1e35ddae246606df4348925"
+
+[[package]]
 name = "group"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6631,6 +6637,7 @@ dependencies = [
  "ed25519-dalek",
  "ed25519-dalek-bip32",
  "generic-array 0.14.6",
+ "goof",
  "hex",
  "hmac 0.12.1",
  "itertools",
