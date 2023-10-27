@@ -102,24 +102,21 @@ pub mod pair {
         /// - If `bytes.len()` is longer than [`Self::BYTES_REPR_SIZE`]
         pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
             // TODO: this was copied from Hyperledger Ursa, but it extremely confusing and ugly. Refactor.
-            if bytes.len() > Self::BYTES_REPR_SIZE {
-                todo!()
+            goof::assert_in(&bytes.len(), &(0..Self::BYTES_REPR_SIZE))?;
+            let mut vec = bytes.to_vec(); // TODO: Remove allocation
+            let len = vec.len();
+            if len < MODBYTES {
+                // TODO: No-op?
+                let diff = MODBYTES - len;
+                let mut result = vec![0; diff];
+                result.append(&mut vec);
+                return Ok(GroupOrderElement {
+                    bignum: BIG::frombytes(&result),
+                });
             } else {
-                let mut vec = bytes.to_vec(); // TODO: Remove allocation
-                let len = vec.len();
-                if len < MODBYTES {
-                    // TODO: No-op?
-                    let diff = MODBYTES - len;
-                    let mut result = vec![0; diff];
-                    result.append(&mut vec);
-                    return Ok(GroupOrderElement {
-                        bignum: BIG::frombytes(&result),
-                    });
-                } else {
-                    Ok(GroupOrderElement {
-                        bignum: BIG::frombytes(bytes),
-                    })
-                }
+                Ok(GroupOrderElement {
+                    bignum: BIG::frombytes(bytes),
+                })
             }
         }
     }
@@ -215,16 +212,22 @@ pub mod pair {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     /// The Seed length is not the right length for what it should be
-    #[error("The seed length is incorrect. {0}")]
-    SeedLength(Mismatch<usize>),
-    /// Other error variant that is not listed above.
-    #[error("The programmer was too lazy to provide the error message")]
-    Other(&'static str),
+    #[error("The seed length is not the correct value. {0}")]
+    SeedLengthExact(Mismatch<usize>),
+    /// The Seed length is not the right length for what it should be
+    #[error("The seed length is not the correct value. {0}")]
+    SeedLength(Outside<usize>),
+}
+
+impl From<Outside<usize>> for Error {
+    fn from(value: Outside<usize>) -> Self {
+        Self::SeedLength(value)
+    }
 }
 
 impl From<Mismatch<usize>> for Error {
     fn from(value: Mismatch<usize>) -> Self {
-        Self::SeedLength(value)
+        Self::SeedLengthExact(value)
     }
 }
 
@@ -245,6 +248,14 @@ impl VerKey {
 pub struct SignKey {
     group_order_element: GroupOrderElement,
     bytes: Vec<u8>,
+}
+
+impl core::fmt::Debug for SignKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SignKey")
+            .field("bytes", &self.bytes)
+            .finish()
+    }
 }
 
 impl From<GroupOrderElement> for SignKey {
@@ -270,6 +281,15 @@ impl SignKey {
         self.bytes.as_slice()
     }
 
+    /// Construct [`Self`] from a raw byte representation.
+    pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, Error> {
+        let group_order_element = GroupOrderElement::from_bytes(&bytes)?;
+        Ok(Self {
+            bytes: bytes.to_vec(),
+            group_order_element,
+        })
+    }
+
     /// Sign a given array of bytes representing a message.
     ///
     /// # Errors
@@ -285,6 +305,7 @@ impl SignKey {
 }
 
 /// The point that must be known to all parties in order for the Elliptic curve cryptography to be useful
+#[derive(Clone, Copy, Debug)]
 pub struct GeneratorPoint {
     point: G2Affine,
 }
@@ -418,16 +439,92 @@ pub mod instruction {
     }
 }
 
-use goof::Mismatch;
+use goof::{Mismatch, Outside};
 pub use instruction::new_bls_12_381_instruction;
 
-// impl Default for GeneratorPoint {
+// impl Default for GeneratorPoint {4
 //     fn default() -> Self {}
 // }
 
 /// Public function to generate a key-pair given a specific thread RNG.
 pub fn generate_key() -> KeyPair {
     todo!()
+}
+
+#[cfg(test)]
+mod test {
+    use crate::bls12_381_instruction::{GeneratorPoint, SignKey, VerKey};
+
+    #[test]
+    fn sign_key_as_bytes_non_empty() {
+        let sign_key = SignKey::new(None).unwrap();
+        let bytes = sign_key.as_bytes();
+        assert!(!bytes.is_empty());
+        assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    /// # ATTENTION:
+    ///
+    /// This test is important, if it breaks, you have broken the ABI.
+    fn sign_key_from_bytes() {
+        let bytes = [
+            3, 19, 158, 223, 233, 207, 232, 184, 106, 205, 198, 32, 14, 2, 215, 75, 44, 68, 21,
+            249, 101, 117, 78, 111, 104, 212, 94, 56, 36, 156, 44, 59_u8,
+        ];
+        let sign_key = SignKey::from_bytes(bytes.clone()).unwrap();
+        assert_eq!(sign_key.as_bytes(), bytes);
+    }
+
+    #[test]
+    fn sig_verify() {
+        let message = vec![1, 2, 3, 4, 5];
+
+        let gen = GeneratorPoint::new();
+        let sign_key = SignKey::new(None).unwrap();
+        let ver_key = VerKey::new(gen, &sign_key).unwrap();
+        let signature = sign_key.sign(&message).unwrap();
+
+        assert!(signature.verify(&message, &ver_key, gen).unwrap());
+
+        let different_message = vec![2, 3, 4, 5, 6];
+
+        let different_message_signature = sign_key.sign(&different_message).unwrap();
+        assert!(different_message_signature
+            .verify(&different_message, &ver_key, gen)
+            .unwrap());
+        assert!(!different_message_signature
+            .verify(&message, &ver_key, gen)
+            .unwrap());
+
+        let different_gen = GeneratorPoint::new();
+        let different_gen_signature = sign_key.sign(&message).unwrap();
+        assert!(
+            !different_gen_signature
+            .verify(&message, &ver_key, different_gen)
+            .unwrap(),
+            "Different generator points cannot be paired post-hoc."
+        );
+
+        let different_sign_key = SignKey::new(None).unwrap();
+        let different_key_signature = different_sign_key.sign(&message).unwrap();
+        assert!(
+            !different_key_signature
+            .verify(&message, &ver_key, different_gen)
+            .unwrap(),
+            "Different sign keys should not produce a valid verification; points cannot be paired post-hoc."
+        );
+
+        // let different_sign_key = SignKey::new(None).unwrap();
+        // let different_ver_key = VerKey::new(gen, &sign_key).unwrap();
+        // let different_key_signature = different_sign_key.sign(&message).unwrap();
+        // assert!(
+        //     different_key_signature
+        //     .verify(&message, &different_ver_key, gen)
+        //     .unwrap(),
+        //     "New keys are paired paired"
+        // );
+    }
 }
 
 // Local Variables:
