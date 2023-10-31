@@ -14,14 +14,6 @@ use {
 /// The length of private (or secret) keys.
 pub const SECRET_KEY_LENGTH: usize = 32;
 
-/// Public function to generate a key-pair given a specific thread RNG.
-///
-/// # Errors
-/// - Forwards [`GeneratorPoint::default`] failure
-pub fn generate_key() -> Result<KeyPair, Error> {
-    KeyPair::new(GeneratorPoint::default())
-}
-
 /// A pair of keys. You usually want to generate this rather than the [`SignKey`]
 pub struct KeyPair {
     /// The private key
@@ -533,7 +525,7 @@ mod test {
 
         let gen = GeneratorPoint::new();
         let sign_key = SignKey::new(None).unwrap();
-        let ver_key = VerKey::new(gen, &sign_key).unwrap();
+        let ver_key = VerKey::new(gen, &sign_key);
         let signature = sign_key.sign(&message).unwrap();
 
         assert!(signature.verify(&message, &ver_key, gen).unwrap());

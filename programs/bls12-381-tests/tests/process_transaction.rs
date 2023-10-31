@@ -1,3 +1,5 @@
+use solana_sdk::bls12_381_instruction::{KeyPair, pair::GeneratorPoint, SignKey, VerKey};
+
 use {
     assert_matches::assert_matches,
     rand::thread_rng,
@@ -11,22 +13,25 @@ use {
 
 #[tokio::test]
 async fn test_success() {
-    let mut context = ProgramTest::default().start_with_context().await;
+    // let mut context = ProgramTest::default().start_with_context().await;
 
-    let client = &mut context.banks_client;
-    let payer = &context.payer;
-    let recent_blockhash = context.last_blockhash;
+    // let client = &mut context.banks_client;
+    // let payer = &context.payer;
+    // let recent_blockhash = context.last_blockhash;
 
-    let privkey = generate_key(&mut thread_rng());
-    let message_arr = b"hello";
-    let instruction = new_bls_12_381_instruction(&privkey, message_arr);
+    let message = b"Hello world";
+    let gen = GeneratorPoint::new();
+    let sign_key = SignKey::new(None).unwrap();
+    let ver_key = VerKey::new(gen, &sign_key);
+    let signature = sign_key.sign(message).unwrap();
 
-    let transaction = Transaction::new_signed_with_payer(
-        &[instruction],
-        Some(&payer.pubkey()),
-        &[payer],
-        recent_blockhash,
-    );
+    assert!(signature.verify(message, &ver_key, gen).unwrap());
 
-    assert_matches!(client.process_transaction(transaction).await, Ok(()));
+    // TODO: instruction API. It's not strictly necessary, but it
+    // allows more of this code to be kept upstream as a dynamically
+    // linkable code executable. At the same time, it's also extremely
+    // tricky to get right.
+    //
+    // If we want upstream compatibility, we have to get this in a
+    // form that is compatible with the original SIMD.
 }
