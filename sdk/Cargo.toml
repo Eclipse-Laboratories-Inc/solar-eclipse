@@ -37,6 +37,7 @@ full = [
 ]
 
 [dependencies]
+amcl = "0.2.0"
 assert_matches = { workspace = true, optional = true }
 base64 = { workspace = true }
 bincode = { workspace = true }

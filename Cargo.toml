@@ -54,6 +54,7 @@ members = [
     "programs/address-lookup-table",
     "programs/address-lookup-table-tests",
     "programs/bpf-loader-tests",
+    "programs/bls12-381-tests",
     "programs/bpf_loader",
     "programs/bpf_loader/gen-syscall-list",
     "programs/compute-budget",
