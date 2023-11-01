@@ -40,15 +40,15 @@ pub struct Signature {
 }
 
 pub mod pair {
-    //! The elliptic curve cryptography at its core is about moving
-    //! along the elliptic curves in affine coordinates. The idea
-    //! being that there are points fixed by some algorithm (and known
-    //! to all parties) which pair up and allow one to navigate the
-    //! elliptic curve. The ED-family of curves fix one of the points
-    //! to be the Edwards point, however the BLS12 family do not have
-    //! that. This module is relevant to handling the pairs of points
-    //! and affine coordinate locations. For simplicity it can be
-    //! regarded as the cryptography part and can be replaced.
+    //! Elliptic curve cryptography at its core is about moving along
+    //! the aforementioned elliptic curves in affine coordinates. The
+    //! idea being that there are points fixed by some algorithm (and
+    //! known to all parties) which pair up and allow one to navigate
+    //! the elliptic curve. The ED-family of curves fix one of the
+    //! points to be the Edwards point, however the BLS12 family do
+    //! not have that. This module is relevant to handling the pairs
+    //! of points and affine coordinate locations. For simplicity it
+    //! can be regarded as the cryptography part and can be replaced.
 
     use {
         super::Error,
@@ -384,7 +384,7 @@ impl SignKey {
     ///
     /// # Errors
     /// - Forwards [`GroupOrderElement::from_bytes`] failure
-    pub fn from_bytes(bytes: [u8; 32]) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: [u8; SECRET_KEY_LENGTH]) -> Result<Self, Error> {
         let group_order_element = GroupOrderElement::from_bytes(&bytes)?;
         Ok(Self {
             bytes: bytes.to_vec(),
@@ -484,6 +484,7 @@ pub mod instruction {
         key: &KeyPair,
         thing: &[u8],
     ) -> crate::instruction::Instruction {
+        // TODO #
         todo!()
     }
 }
@@ -521,27 +522,37 @@ mod test {
 
     #[test]
     fn sig_verify() {
-        let message = vec![1, 2, 3, 4, 5];
+        let message = [1, 2, 3, 4, 5];
 
         let gen = GeneratorPoint::new();
         let sign_key = SignKey::new(None).unwrap();
         let ver_key = VerKey::new(gen, &sign_key);
         let signature = sign_key.sign(&message).unwrap();
 
-        assert!(signature.verify(&message, &ver_key, gen).unwrap());
+        assert!(
+            signature.verify(&message, &ver_key, gen).unwrap(),
+            "Failed to verify signature for message [1,2,3,4,5]"
+        );
 
-        let different_message = vec![2, 3, 4, 5, 6];
+        let different_message = [2, 3, 4, 5, 6];
 
         let different_message_signature = sign_key.sign(&different_message).unwrap();
-        assert!(different_message_signature
+        // assert_ne!(signature, different_message_signature);
+        assert!(
+            different_message_signature
             .verify(&different_message, &ver_key, gen)
-            .unwrap());
+            .unwrap(),
+            "Couldn't verify the signature on `different_message`, probably because the signature has become non-deterministic."
+        );
         assert!(!different_message_signature
             .verify(&message, &ver_key, gen)
-            .unwrap());
+            .unwrap(),
+            "The signature for two different trivial messages is the exact same. This should never happen, and you should report it"
+        );
 
         let different_gen = GeneratorPoint::new();
         let different_gen_signature = sign_key.sign(&message).unwrap();
+        // assert_ne!(signature, different_gen_signature);
         assert!(
             !different_gen_signature
                 .verify(&message, &ver_key, different_gen)
@@ -557,16 +568,6 @@ mod test {
             .unwrap(),
             "Different sign keys should not produce a valid verification; points cannot be paired post-hoc."
         );
-
-        // let different_sign_key = SignKey::new(None).unwrap();
-        // let different_ver_key = VerKey::new(gen, &sign_key).unwrap();
-        // let different_key_signature = different_sign_key.sign(&message).unwrap();
-        // assert!(
-        //     different_key_signature
-        //     .verify(&message, &different_ver_key, gen)
-        //     .unwrap(),
-        //     "New keys are paired paired"
-        // );
     }
 }
 
