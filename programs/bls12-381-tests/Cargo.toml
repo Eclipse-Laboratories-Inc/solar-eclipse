@@ -9,9 +9,9 @@ publish = false
 
 [dev-dependencies]
 assert_matches = "1.5.0"
-solana-program-test = { path = "../../program-test", version = "=1.15.2" }
+solana-program-test = { path = "../../program-test", version = "=1.16.14" }
 rand = "0.7.0"
-solana-sdk = { path = "../../sdk", version = "=1.15.2" }
+solana-sdk = { path = "../../sdk", version = "=1.16.14" }
 # Because of a lack of maintenance, the `rand_chacha` crate causes conflicts with the current version of solar eclipse. Thus we can't really import it 
 # ursa = "0.3.7"
 
