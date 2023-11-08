@@ -495,8 +495,8 @@ pub mod instruction {
     /// Construct an instruction to be used by Solana programs.
     #[must_use]
     pub fn new_bls_12_381_instruction(
-        key: &KeyPair,
-        thing: &[u8],
+        _key: &KeyPair,
+        _thing: &[u8],
     ) -> crate::instruction::Instruction {
         // TODO #
         todo!()
