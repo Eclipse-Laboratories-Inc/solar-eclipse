@@ -3,7 +3,16 @@
 #![allow(clippy::module_name_repetitions, clippy::wildcard_imports)]
 //! This module is a port of Hyperledger Ursa's built-in BLS
 //! signature-verify. Only a single key verification is implemented at
-//! this point.
+//! this point.  The module is meant to initially expose only the SDK
+//! changes, which can be easily taken down in size with LTO and
+//! should produce more performant, if larger (but not significantly)
+//! binaries.  The idea being that single signature verify is quick,
+//! and small, and that most of the code overhead can be taken down
+//! using LTO.
+//!
+//! This is by no means a complete implementation, further work is
+//! needed to expand the scope and to include changes to the Solana
+//! ISA.
 
 pub use instruction::new_bls_12_381_instruction;
 use {
@@ -16,26 +25,30 @@ pub const SECRET_KEY_LENGTH: usize = 32;
 
 /// A pair of keys. You usually want to generate this rather than the [`SignKey`]
 pub struct KeyPair {
-    /// The private key
+    /// The private key.  At present can only be used to create a single signature.
     pub sign: SignKey,
-    /// The public key
+    /// The public key.  At present can only be used to verify a single signature.
     pub verify: VerKey,
 }
 
 /// The **Public Key** equivalent for the BLS12-381 cryptography.
 pub struct VerKey {
+    /// The affine point that is used to represent the location along the elliptic curve.
     pub(crate) point: G2Affine,
 }
 
 /// The **Private key** equivalent for the BLS12-381 cryptography.
 pub struct SignKey {
+    /// The piece of data that must be known to all parties.
     group_order_element: GroupOrderElement,
+    /// The byte represetntation of the Private Key.
     bytes: Vec<u8>,
 }
 
 /// The structure that represents a signature on the BLS12 elliptic curve.
 #[derive(Debug)]
 pub struct Signature {
+    /// The signature as represented in the G1 space of the elliptic curve.
     pub(crate) point: G1Affine,
 }
 
@@ -96,6 +109,7 @@ pub mod pair {
     #[derive(Clone, Copy, PartialEq, Eq)]
     #[must_use]
     pub struct GroupOrderElement {
+        /// Group oirder element as represented by the [AMCL](https://github.com/miracl/amcl) Big number.
         bignum: BIG,
     }
 
