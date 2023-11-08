@@ -1,4 +1,4 @@
-use solana_sdk::bls12_381_instruction::{pair::GeneratorPoint, SignKey, VerKey};
+use solana_sdk::bls12_381_instruction::{algebra::GeneratorPoint, SignKey, VerKey};
 
 use {
     solana_program_test::*,

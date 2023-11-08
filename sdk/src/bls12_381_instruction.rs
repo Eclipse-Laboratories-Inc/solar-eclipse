@@ -16,12 +16,13 @@
 
 pub use instruction::new_bls_12_381_instruction;
 use {
-    self::pair::GeneratorPoint,
+    self::algebra::GeneratorPoint,
+    algebra::{G1Affine, G2Affine, GroupOrderElement},
     goof::{Mismatch, Outside},
-    pair::{G1Affine, G2Affine, GroupOrderElement},
 };
 /// The length of private (or secret) keys.
 pub const SECRET_KEY_LENGTH: usize = 32;
+pub const PUBLIC_KEY_LENGTH: usize = MODBYTES * 4;
 
 /// A pair of keys. You usually want to generate this rather than the [`SignKey`]
 pub struct KeyPair {
@@ -52,7 +53,7 @@ pub struct Signature {
     pub(crate) point: G1Affine,
 }
 
-pub mod pair {
+pub mod algebra {
     //! Elliptic curve cryptography at its core is about moving along
     //! the aforementioned elliptic curves in affine coordinates. The
     //! idea being that there are points fixed by some algorithm (and
@@ -77,9 +78,9 @@ pub mod pair {
 
     /// Pair of points in the affine representation using the [`amcl`] library.
     #[derive(Copy, Clone, PartialEq)]
-    pub struct Pair(pub(crate) amcl::bn254::fp12::FP12);
+    pub struct PointPair(pub(crate) amcl::bn254::fp12::FP12);
 
-    impl Pair {
+    impl PointPair {
         /// The equivalent of of performing the operation `e(PointG1,
         /// PointG2, PointG1_1, PointG2_1)` it should yield a
         /// co-ordinate transformation that is closed under the group
@@ -358,6 +359,10 @@ impl VerKey {
             .group_mul(&sign_key.group_order_element);
         VerKey { point }
     }
+
+    pub fn as_bytes(&self) -> [u8; PUBLIC_KEY_LENGTH] {
+        todo!()
+    }
 }
 
 impl core::fmt::Debug for SignKey {
@@ -413,7 +418,7 @@ impl SignKey {
     pub fn sign(&self, message: &[u8]) -> Result<Signature, Error> {
         let point = {
             let hasher = sha2::Sha256::default();
-            pair::hash(message, hasher)?.mul(&self.group_order_element)
+            algebra::hash(message, hasher)?.mul(&self.group_order_element)
         };
 
         Ok(Signature { point })
@@ -439,9 +444,9 @@ impl Signature {
         verification_key: &VerKey,
         generator: GeneratorPoint,
     ) -> Result<bool, Error> {
-        let hashpoint = pair::hash(message, sha2::Sha256::default())?;
+        let hashpoint = algebra::hash(message, sha2::Sha256::default())?;
         Ok(amcl::bn254::fp12::FP12::isunity(
-            &pair::Pair::pair2(
+            &algebra::PointPair::pair2(
                 &self.point,
                 &core::ops::Neg::neg(generator.point),
                 &hashpoint,
@@ -490,15 +495,50 @@ impl KeyPair {
 pub mod instruction {
     //! Solana integration.
 
+    use bytemuck::{bytes_of, Pod, Zeroable};
+
+    /// Size of the serialized Public (verficiation) key
+    pub const PUBKEY_SERIALIZED_SIZE: usize = todo!();
+    /// Size of the serialized single signature
+    pub const SIGNATURE_SERIALIZED_SIZE: usize = todo!();
+    /// Offset(s) for Signature; not used yet.
+    pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = todo!();
+    /// The Signature offset start, required because [`bytemuck`]
+    /// requires structures to be aligned
+    pub const SIGNATURE_OFFSET_START: usize = todo!();
+
+    /// The start of the data offset. This is a dependent constant, not to be tweaked manually.
+    pub const DATA_START: usize = SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSET_START;
+
+    #[derive(Default, Debug, Copy, Clone, Zeroable, Pod, Eq, PartialEq)]
+    #[repr(C)]
+    pub struct Bls12381SignatureOffsets {
+        /// Offset to ed25519 signature of 64 bytes
+        signature_offset: u16,
+        /// Instruction index to find signature
+        signature_instruction_index: u16,
+        /// Offset to public key of 32 bytes
+        public_key_offset: u16,
+        /// Instruction index to find public key
+        public_key_instruction_index: u16,
+        /// Offset to start of message data
+        message_data_offset: u16,
+        /// Size of message data
+        message_data_size: u16,
+        /// Index of instruction data to get message data
+        message_instruction_index: u16,
+    }
+
     use super::*;
 
     /// Construct an instruction to be used by Solana programs.
     #[must_use]
     pub fn new_bls_12_381_instruction(
-        _key: &KeyPair,
-        _thing: &[u8],
-    ) -> crate::instruction::Instruction {
-        // TODO #
+        key: &KeyPair,
+        message: &[u8],
+    ) -> Result<crate::instruction::Instruction, Error> {
+        let signature = key.sign.sign(message)?;
+        let pubkey = key.verify.to_bytes();
         todo!()
     }
 }
