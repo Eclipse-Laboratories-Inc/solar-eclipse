@@ -29,9 +29,10 @@ pub struct Rent {
 /// This calculation is based on:
 /// - 10^9 lamports per SOL
 /// - $1 per SOL
-/// - $0.01 per megabyte day
-/// - $3.65 per megabyte year
-pub const DEFAULT_LAMPORTS_PER_BYTE_YEAR: u64 = 1_000_000_000 / 100 * 365 / (1024 * 1024);
+/// - $0.0001 per megabyte day (100 times cheaper than the original cost)
+/// - $0.0365 per megabyte year (100 times cheaper than the original cost)
+pub const DEFAULT_LAMPORTS_PER_BYTE_YEAR: u64 = 1_000_000_000 / 10_000 * 365 / (1024 * 1024);
+
 
 /// Default amount of time (in years) the balance has to include rent for the
 /// account to be rent exempt.
@@ -41,7 +42,7 @@ pub const DEFAULT_EXEMPTION_THRESHOLD: f64 = 2.0;
 ///
 /// Valid values are in the range [0, 100]. The remaining percentage is
 /// distributed to validators.
-pub const DEFAULT_BURN_PERCENT: u8 = 50;
+pub const DEFAULT_BURN_PERCENT: u8 = 0;
 
 /// Account storage overhead for calculation of base rent.
 ///
