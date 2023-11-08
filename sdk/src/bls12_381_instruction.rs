@@ -20,11 +20,9 @@ use {
     algebra::{G1Affine, G2Affine, GroupOrderElement},
     goof::{Mismatch, Outside},
 };
-/// The length of private (or secret) keys.
-pub const SECRET_KEY_LENGTH: usize = 32;
-pub const PUBLIC_KEY_LENGTH: usize = MODBYTES * 4;
 
 /// A pair of keys. You usually want to generate this rather than the [`SignKey`]
+#[repr(C)]
 pub struct KeyPair {
     /// The private key.  At present can only be used to create a single signature.
     pub sign: SignKey,
@@ -33,24 +31,29 @@ pub struct KeyPair {
 }
 
 /// The **Public Key** equivalent for the BLS12-381 cryptography.
+#[repr(transparent)]
 pub struct VerKey {
     /// The affine point that is used to represent the location along the elliptic curve.
     pub(crate) point: G2Affine,
 }
 
 /// The **Private key** equivalent for the BLS12-381 cryptography.
+#[repr(transparent)]
 pub struct SignKey {
     /// The piece of data that must be known to all parties.
     group_order_element: GroupOrderElement,
-    /// The byte represetntation of the Private Key.
-    bytes: Vec<u8>,
 }
 
 /// The structure that represents a signature on the BLS12 elliptic curve.
 #[derive(Debug)]
+#[repr(transparent)]
 pub struct Signature {
     /// The signature as represented in the G1 space of the elliptic curve.
     pub(crate) point: G1Affine,
+}
+
+pub trait FixedByteRepr {
+    const BYTE_REPR_SIZE: usize;
 }
 
 pub mod algebra {
@@ -65,7 +68,7 @@ pub mod algebra {
     //! can be regarded as the cryptography part and can be replaced.
 
     use {
-        super::Error,
+        super::{Error, FixedByteRepr},
         amcl::bn254::{
             big::BIG,
             ecp::ECP,
@@ -78,6 +81,7 @@ pub mod algebra {
 
     /// Pair of points in the affine representation using the [`amcl`] library.
     #[derive(Copy, Clone, PartialEq)]
+    #[repr(transparent)]
     pub struct PointPair(pub(crate) amcl::bn254::fp12::FP12);
 
     impl PointPair {
@@ -109,15 +113,17 @@ pub mod algebra {
     /// tells you nothing, consider not touching objects of this type.
     #[derive(Clone, Copy, PartialEq, Eq)]
     #[must_use]
+    #[repr(transparent)]
     pub struct GroupOrderElement {
         /// Group oirder element as represented by the [AMCL](https://github.com/miracl/amcl) Big number.
         bignum: BIG,
     }
 
-    impl GroupOrderElement {
-        /// Fixed size representation length for [`Self`]
-        pub const BYTES_REPR_SIZE: usize = MODBYTES;
+    impl FixedByteRepr for GroupOrderElement {
+        const BYTE_REPR_SIZE: usize = MODBYTES;
+    }
 
+    impl GroupOrderElement {
         /// Construct a random group element using the [`amcl`] subroutines. See [`random_mod_order`]
         pub fn new() -> Self {
             GroupOrderElement {
@@ -146,7 +152,7 @@ pub mod algebra {
         #[must_use]
         pub fn to_byte_vec(&self) -> Vec<u8> {
             let mut bn = self.bignum;
-            let mut vec = vec![0u8; Self::BYTES_REPR_SIZE];
+            let mut vec = vec![0u8; Self::BYTE_REPR_SIZE];
             bn.tobytes(&mut vec);
             vec
         }
@@ -157,7 +163,7 @@ pub mod algebra {
         /// - If `bytes.len()` is longer than [`Self::BYTES_REPR_SIZE`]
         pub fn from_bytes(bytes: &[u8]) -> Result<Self, Error> {
             // TODO: this was copied from Hyperledger Ursa, but it extremely confusing and ugly. Refactor.
-            goof::assert_in(&bytes.len(), &(0..Self::BYTES_REPR_SIZE))?;
+            goof::assert_in(&bytes.len(), &(0..Self::BYTE_REPR_SIZE))?;
             let mut vec = bytes.to_vec(); // TODO: Remove allocation
             let len = vec.len();
             if len < MODBYTES {
@@ -199,12 +205,18 @@ pub mod algebra {
     /// An element of the `G1` group, represented in Affine coordinates via the [`amcl`] library.
     #[derive(Debug, Clone, Copy, PartialEq)]
     #[must_use]
+    #[repr(transparent)]
     pub struct G1Affine(pub(crate) ECP);
 
     /// An element of the `G2` group represented in Affine coordinates via the [`amcl`] library.
     #[derive(Debug, Clone, Copy, PartialEq)]
     #[must_use]
+    #[repr(transparent)]
     pub struct G2Affine(pub(crate) ECP2);
+
+    impl FixedByteRepr for G1Affine {
+        const BYTE_REPR_SIZE: usize = MODBYTES * 16;
+    }
 
     impl G1Affine {
         /// Produce [`Self`] from a set of `hash_bytes`. See
@@ -239,10 +251,11 @@ pub mod algebra {
         }
     }
 
-    impl G2Affine {
-        /// Fixed size representation length of the object.
-        pub const BYTES_REPR_SIZE: usize = MODBYTES * 4;
+    impl FixedByteRepr for G2Affine {
+        const BYTE_REPR_SIZE: usize = MODBYTES * 4;
+    }
 
+    impl G2Affine {
         /// Create a new random `G2` group element.
         pub fn new() -> G2Affine {
             let point_x = {
@@ -268,6 +281,12 @@ pub mod algebra {
             let r = self.0;
             let bn = goe.bignum;
             Self(g2mul(&r, &bn))
+        }
+
+        pub fn to_byte_vec(&self) -> Vec<u8> {
+            let mut out_buffer = vec![0u8; Self::BYTE_REPR_SIZE];
+            self.0.tobytes(&mut out_buffer);
+            out_buffer
         }
     }
 
@@ -350,6 +369,10 @@ impl From<Mismatch<usize>> for Error {
     }
 }
 
+impl FixedByteRepr for VerKey {
+    const BYTE_REPR_SIZE: usize = amcl::bn254::rom::MODBYTES * 4;
+}
+
 impl VerKey {
     /// Construct [`Self`]
     #[must_use]
@@ -360,15 +383,17 @@ impl VerKey {
         VerKey { point }
     }
 
-    pub fn as_bytes(&self) -> [u8; PUBLIC_KEY_LENGTH] {
-        todo!()
+    /// Allocate and return a byte vector representing [`self`].
+    #[must_use]
+    pub fn to_byte_vec(&self) -> Vec<u8> {
+        self.point.to_byte_vec()
     }
 }
 
 impl core::fmt::Debug for SignKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SignKey")
-            .field("bytes", &self.bytes)
+            .field("bytes", &self.group_order_element.to_byte_vec())
             .finish()
     }
 }
@@ -377,9 +402,13 @@ impl From<GroupOrderElement> for SignKey {
     fn from(group_order_element: GroupOrderElement) -> Self {
         Self {
             group_order_element,
-            bytes: group_order_element.to_byte_vec(),
+            // bytes: group_order_element.to_byte_vec(),
         }
     }
+}
+
+impl FixedByteRepr for SignKey {
+    const BYTE_REPR_SIZE: usize = 32;
 }
 
 impl SignKey {
@@ -395,18 +424,17 @@ impl SignKey {
 
     /// View [`self`] as `&[u8]`.
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
-        self.bytes.as_slice()
+    pub fn to_byte_vec(&self) -> Vec<u8> {
+        self.group_order_element.to_byte_vec()
     }
 
     /// Construct [`Self`] from a raw byte representation.
     ///
     /// # Errors
     /// - Forwards [`GroupOrderElement::from_bytes`] failure
-    pub fn from_bytes(bytes: [u8; SECRET_KEY_LENGTH]) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: [u8; Self::BYTE_REPR_SIZE]) -> Result<Self, Error> {
         let group_order_element = GroupOrderElement::from_bytes(&bytes)?;
         Ok(Self {
-            bytes: bytes.to_vec(),
             group_order_element,
         })
     }
@@ -423,6 +451,10 @@ impl SignKey {
 
         Ok(Signature { point })
     }
+}
+
+impl FixedByteRepr for Signature {
+    const BYTE_REPR_SIZE: usize = G1Affine::BYTE_REPR_SIZE;
 }
 
 impl Signature {
@@ -452,7 +484,7 @@ impl Signature {
                 &hashpoint,
                 &verification_key.point,
             )
-            .0,
+                .0,
         ))
     }
 }
@@ -498,15 +530,14 @@ pub mod instruction {
     use bytemuck::{bytes_of, Pod, Zeroable};
 
     /// Size of the serialized Public (verficiation) key
-    pub const PUBKEY_SERIALIZED_SIZE: usize = todo!();
+    pub const PUBKEY_SERIALIZED_SIZE: usize = VerKey::BYTE_REPR_SIZE;
     /// Size of the serialized single signature
-    pub const SIGNATURE_SERIALIZED_SIZE: usize = todo!();
+    pub const SIGNATURE_SERIALIZED_SIZE: usize = Signature::BYTE_REPR_SIZE;
     /// Offset(s) for Signature; not used yet.
-    pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = todo!();
+    pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14; // FIXME: This might not be correct
     /// The Signature offset start, required because [`bytemuck`]
     /// requires structures to be aligned
-    pub const SIGNATURE_OFFSET_START: usize = todo!();
-
+    pub const SIGNATURE_OFFSET_START: usize = 0; // FIXME: This might not be correct either
     /// The start of the data offset. This is a dependent constant, not to be tweaked manually.
     pub const DATA_START: usize = SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSET_START;
 
@@ -538,7 +569,7 @@ pub mod instruction {
         message: &[u8],
     ) -> Result<crate::instruction::Instruction, Error> {
         let signature = key.sign.sign(message)?;
-        let pubkey = key.verify.to_bytes();
+        let pubkey = key.verify.to_byte_vec();
         todo!()
     }
 }
@@ -550,7 +581,7 @@ mod test {
     #[test]
     fn sign_key_as_bytes_non_empty() {
         let sign_key = SignKey::new(None).unwrap();
-        let bytes = sign_key.as_bytes();
+        let bytes = sign_key.to_byte_vec();
         assert!(!bytes.is_empty());
         assert_eq!(bytes.len(), 32);
     }
@@ -571,7 +602,7 @@ mod test {
             249, 101, 117, 78, 111, 104, 212, 94, 56, 36, 156, 44, 59_u8,
         ];
         let sign_key = SignKey::from_bytes(bytes.clone()).unwrap();
-        assert_eq!(sign_key.as_bytes(), bytes);
+        assert_eq!(sign_key.to_byte_vec(), bytes);
     }
 
     #[test]
@@ -609,8 +640,8 @@ mod test {
         // assert_ne!(signature, different_gen_signature);
         assert!(
             !different_gen_signature
-                .verify(&message, &ver_key, different_gen)
-                .unwrap(),
+            .verify(&message, &ver_key, different_gen)
+            .unwrap(),
             "Different generator points cannot be paired post-hoc."
         );
 
