@@ -486,6 +486,7 @@ pub mod clock;
 pub mod debug_account_data;
 pub mod decode_error;
 pub mod ed25519_program;
+pub mod bls12_381_program;
 pub mod entrypoint;
 pub mod entrypoint_deprecated;
 pub mod epoch_schedule;

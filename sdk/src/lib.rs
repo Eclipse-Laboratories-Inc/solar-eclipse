@@ -46,7 +46,7 @@ pub use solana_program::{
     account_info, address_lookup_table_account, alt_bn128, big_mod_exp, blake3, borsh, borsh0_10,
     borsh0_9, bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, clock, config,
     custom_heap_default, custom_panic_default, debug_account_data, declare_deprecated_sysvar_id,
-    declare_sysvar_id, decode_error, ed25519_program, epoch_schedule, fee_calculator,
+    declare_sysvar_id, decode_error, ed25519_program, bls12_381_program, epoch_schedule, fee_calculator,
     impl_sysvar_get, incinerator, instruction, keccak, lamports, loader_instruction,
     loader_upgradeable_instruction, loader_v4, loader_v4_instruction, message, msg, native_token,
     nonce, program, program_error, program_memory, program_option, program_pack, rent, sanitize,

@@ -52,7 +52,13 @@ pub struct Signature {
     pub(crate) point: G1Affine,
 }
 
+/// Most objects in this module need to be encoded in a fixed-size
+/// object, called a Solana instruction. It is thus imperative to
+/// encode that information as being a fixed size. If you know that
+/// your object can be encoded in *at most* `BYTE_REPR_SIZE`, then
+/// implement this trait.
 pub trait FixedByteRepr {
+    /// The **maximum** size of
     const BYTE_REPR_SIZE: usize;
 }
 
@@ -257,7 +263,7 @@ pub mod algebra {
 
     impl G2Affine {
         /// Create a new random `G2` group element.
-        pub fn new() -> G2Affine {
+        pub fn new() -> Self {
             let point_x = {
                 let point_x_a = BIG::new_ints(&CURVE_PXA);
                 let point_x_b = BIG::new_ints(&CURVE_PXB);
@@ -283,6 +289,9 @@ pub mod algebra {
             Self(g2mul(&r, &bn))
         }
 
+        /// Return representation of [`self`] as a vector of
+        /// bytes. The size of the vector is fixed by construction to
+        /// be [`Self::BYTE_REPR_SIZE`].
         pub fn to_byte_vec(&self) -> Vec<u8> {
             let mut out_buffer = vec![0u8; Self::BYTE_REPR_SIZE];
             self.0.tobytes(&mut out_buffer);
@@ -520,12 +529,7 @@ impl KeyPair {
     ///
     /// - Forwards [`SignKey::new`] failure
     pub fn new(generator_point: GeneratorPoint) -> Result<Self, Error> {
-        let sign = {
-            let mut private_key_seed = vec![0; amcl::bn254::rom::MODBYTES];
-            let mut rng = rand::thread_rng();
-            rand::RngCore::fill_bytes(&mut rng, &mut private_key_seed);
-            SignKey::new(Some(&private_key_seed))?
-        };
+        let sign = SignKey::new(None)?;
         let verify = VerKey::new(generator_point, &sign);
         Ok(Self { sign, verify })
     }
@@ -544,10 +548,11 @@ pub mod instruction {
     pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14;
     /// The Signature offset start, required because [`bytemuck`]
     /// requires structures to be aligned
-    pub const SIGNATURE_OFFSET_START: usize = 0; // FIXME: This might not be correct either
+    pub const SIGNATURE_OFFSET_START: usize = 16 - SIGNATURE_OFFSETS_SERIALIZED_SIZE; // TODO: Come up with a more reliable way of ensuring alignment
     /// The start of the data offset. This is a dependent constant, not to be tweaked manually.
     pub const DATA_START: usize = SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSET_START;
 
+    /// Signature offsets packed into a single object.
     #[derive(Default, Debug, Copy, Clone, Zeroable, Pod, Eq, PartialEq)]
     #[repr(C)]
     pub struct Bls12381SignatureOffsets {
@@ -567,48 +572,97 @@ pub mod instruction {
         message_instruction_index: u16,
     }
 
-    use super::*;
+    use {super::*, crate::instruction::Instruction};
 
     /// Construct an instruction to be used by Solana programs.
+    ///
+    /// # Errors
+    /// - If signing the message fails.
+    ///
+    /// # Panics
+    ///
+    /// These panics are only present in debug builds, which should
+    /// protect you if you run the tests, but not in the wild.  
+    /// - If any of the length assersions fail.
+    /// - If any of the length assets are longer than what would fit into `u16`
     #[must_use]
-    pub fn new_bls_12_381_instruction(
-        key: &KeyPair,
-        message: &[u8],
-    ) -> Result<crate::instruction::Instruction, Error> {
+    pub fn new_bls_12_381_instruction(key: &KeyPair, message: &[u8]) -> Result<Instruction, Error> {
         // FIXME: SATURATION IS NOT WHAT WE WANT IN ANY OF THE ARITHMETIC HERE.
         let signature = key.sign.sign(message)?.to_byte_vec();
-        assert_eq!(signature.len(), SIGNATURE_SERIALIZED_SIZE);
+        debug_assert_eq!(
+            signature.len(),
+            SIGNATURE_SERIALIZED_SIZE,
+            "Signature length has unexpected value. This is not a safe state, aborting"
+        );
 
         let pubkey = key.verify.to_byte_vec();
-        assert_eq!(pubkey.len(), PUBKEY_SERIALIZED_SIZE);
+        debug_assert_eq!(
+            pubkey.len(),
+            PUBKEY_SERIALIZED_SIZE,
+            "Public Key length has an unexpected value. This is not a safe state, aborting"
+        );
 
-        let mut instruction_data = vec![
-            0u8;
+        let mut instruction_data = Vec::with_capacity(
             DATA_START
                 .saturating_add(SIGNATURE_SERIALIZED_SIZE)
                 .saturating_add(PUBKEY_SERIALIZED_SIZE)
-            .saturating_add(message.len())
-        ];
+                .saturating_add(message.len()),
+        );
 
         let num_signatures = 1u8;
         let public_key_offset = DATA_START;
         let signature_offset = public_key_offset.saturating_add(PUBKEY_SERIALIZED_SIZE);
-        let message_data_offset = signature_offset.saturating_add(SIGNATURE_SERIALIZED_SIZE);
+        let message_data_offset = signature_offset
+            .saturating_add(SIGNATURE_SERIALIZED_SIZE)
+            .try_into()
+            .expect("Message data offset too large for u16");
         // FIXME: this assumes one byte to align.
         instruction_data.extend_from_slice(bytes_of(&[num_signatures, 0]));
-        let offsets
-    }
+        debug_assert_eq!(instruction_data.len(), 2);
+        let offsets = Bls12381SignatureOffsets {
+            signature_offset: signature_offset
+                .try_into()
+                .expect("Signature offset doesn't fit into u16"),
+            signature_instruction_index: u16::MAX,
+            public_key_offset: public_key_offset
+                .try_into()
+                .expect("Public key offset doesn't fit into u16"),
+            public_key_instruction_index: u16::MAX,
+            message_data_offset,
+            message_data_size: message
+                .len()
+                .try_into()
+                .expect("Message too long to fit into u16"),
+            message_instruction_index: u16::MAX,
+        };
 
-    #[cfg(test)]
-    mod test {
-        #[test]
-        fn test_align() {}
+        instruction_data.extend_from_slice(bytes_of(&offsets));
+        debug_assert_eq!(
+            instruction_data.len(),
+            public_key_offset,
+            "Public Key offset"
+        );
+        instruction_data.extend_from_slice(&pubkey);
+        debug_assert_eq!(instruction_data.len(), signature_offset, "Signature offset");
+        instruction_data.extend_from_slice(&signature);
+        debug_assert_eq!(
+            instruction_data.len(),
+            message_data_offset as usize,
+            "message_data_offset"
+        );
+        instruction_data.extend_from_slice(message);
+
+        Ok(Instruction {
+            program_id: solana_sdk::bls12_381_program::id(),
+            accounts: Vec::new(),
+            data: instruction_data,
+        })
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::bls12_381_instruction::{GeneratorPoint, SignKey, VerKey};
+    use crate::bls12_381_instruction::{instruction, GeneratorPoint, KeyPair, SignKey, VerKey};
 
     #[test]
     fn sign_key_as_bytes_non_empty() {
@@ -685,6 +739,14 @@ mod test {
             .unwrap(),
             "Different sign keys should not produce a valid verification; points cannot be paired post-hoc."
         );
+    }
+
+    #[test]
+    fn instruction_test() {
+        let key_pair = KeyPair::new(GeneratorPoint::default()).expect("Failed to create key pair");
+        let message = b"Hello world";
+        let instruction = instruction::new_bls_12_381_instruction(&key_pair, message);
+        println!("{instruction:?}");
     }
 }
 
