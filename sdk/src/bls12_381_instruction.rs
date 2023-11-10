@@ -484,8 +484,15 @@ impl Signature {
                 &hashpoint,
                 &verification_key.point,
             )
-                .0,
+            .0,
         ))
+    }
+
+    /// Convert [`Self`] to a vector of `u8`.
+    fn to_byte_vec(&self) -> Vec<u8> {
+        let mut buffer = vec![0u8; Self::BYTE_REPR_SIZE];
+        self.point.0.tobytes(&mut buffer, false);
+        buffer
     }
 }
 
@@ -534,7 +541,7 @@ pub mod instruction {
     /// Size of the serialized single signature
     pub const SIGNATURE_SERIALIZED_SIZE: usize = Signature::BYTE_REPR_SIZE;
     /// Offset(s) for Signature; not used yet.
-    pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14; // FIXME: This might not be correct
+    pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14;
     /// The Signature offset start, required because [`bytemuck`]
     /// requires structures to be aligned
     pub const SIGNATURE_OFFSET_START: usize = 0; // FIXME: This might not be correct either
@@ -568,9 +575,34 @@ pub mod instruction {
         key: &KeyPair,
         message: &[u8],
     ) -> Result<crate::instruction::Instruction, Error> {
-        let signature = key.sign.sign(message)?;
+        // FIXME: SATURATION IS NOT WHAT WE WANT IN ANY OF THE ARITHMETIC HERE.
+        let signature = key.sign.sign(message)?.to_byte_vec();
+        assert_eq!(signature.len(), SIGNATURE_SERIALIZED_SIZE);
+
         let pubkey = key.verify.to_byte_vec();
-        todo!()
+        assert_eq!(pubkey.len(), PUBKEY_SERIALIZED_SIZE);
+
+        let mut instruction_data = vec![
+            0u8;
+            DATA_START
+                .saturating_add(SIGNATURE_SERIALIZED_SIZE)
+                .saturating_add(PUBKEY_SERIALIZED_SIZE)
+            .saturating_add(message.len())
+        ];
+
+        let num_signatures = 1u8;
+        let public_key_offset = DATA_START;
+        let signature_offset = public_key_offset.saturating_add(PUBKEY_SERIALIZED_SIZE);
+        let message_data_offset = signature_offset.saturating_add(SIGNATURE_SERIALIZED_SIZE);
+        // FIXME: this assumes one byte to align.
+        instruction_data.extend_from_slice(bytes_of(&[num_signatures, 0]));
+        let offsets
+    }
+
+    #[cfg(test)]
+    mod test {
+        #[test]
+        fn test_align() {}
     }
 }
 
@@ -640,8 +672,8 @@ mod test {
         // assert_ne!(signature, different_gen_signature);
         assert!(
             !different_gen_signature
-            .verify(&message, &ver_key, different_gen)
-            .unwrap(),
+                .verify(&message, &ver_key, different_gen)
+                .unwrap(),
             "Different generator points cannot be paired post-hoc."
         );
 
