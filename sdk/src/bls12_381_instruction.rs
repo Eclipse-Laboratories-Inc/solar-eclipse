@@ -310,8 +310,8 @@ pub mod algebra {
 
     impl Default for GeneratorPoint {
         fn default() -> Self {
-            let mut seed_buffer = vec![0_u8; 128];
-            Self::seed_into(&mut seed_buffer)
+            let seed_buffer = [0_u8; 128];
+            Self::from_seed(&seed_buffer).unwrap()
         }
     }
 
@@ -324,11 +324,10 @@ pub mod algebra {
             }
         }
 
-        /// Construct [`Self`] from a seed.
-        pub fn seed_into(seed: &mut [u8]) -> Self {
+        /// Construct [`Self`] given a seed of precisely 128 bytes of entropy.
+        pub fn from_seed(seed: &[u8]) -> Result<Self, Error> {
             let randnum = {
-                let mut rng = rand::thread_rng();
-                rand::RngCore::fill_bytes(&mut rng, seed);
+                goof::assert_eq(&seed.len(), &128usize)?;
                 let mut rng = amcl::rand::RAND::new();
                 rng.clean();
                 rng.seed(seed.len(), seed);
@@ -353,7 +352,7 @@ pub mod algebra {
                 ))
             };
 
-            Self { point }
+            Ok(Self { point })
         }
     }
 }
