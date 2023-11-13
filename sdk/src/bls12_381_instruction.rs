@@ -22,6 +22,7 @@ use {
 };
 
 /// A pair of keys. You usually want to generate this rather than the [`SignKey`]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[repr(C)]
 pub struct KeyPair {
     /// The private key.  At present can only be used to create a single signature.
@@ -31,6 +32,7 @@ pub struct KeyPair {
 }
 
 /// The **Public Key** equivalent for the BLS12-381 cryptography.
+#[derive(Clone, Copy, PartialEq)]
 #[repr(transparent)]
 pub struct VerKey {
     /// The affine point that is used to represent the location along the elliptic curve.
@@ -38,6 +40,7 @@ pub struct VerKey {
 }
 
 /// The **Private key** equivalent for the BLS12-381 cryptography.
+#[derive(Clone, Copy, PartialEq)]
 #[repr(transparent)]
 pub struct SignKey {
     /// The piece of data that must be known to all parties.
@@ -45,7 +48,7 @@ pub struct SignKey {
 }
 
 /// The structure that represents a signature on the BLS12 elliptic curve.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
 pub struct Signature {
     /// The signature as represented in the G1 space of the elliptic curve.
@@ -117,7 +120,7 @@ pub mod algebra {
 
     /// The group element in the BLS12 affine coordinates. If this
     /// tells you nothing, consider not touching objects of this type.
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[must_use]
     #[repr(transparent)]
     pub struct GroupOrderElement {
@@ -307,8 +310,8 @@ pub mod algebra {
 
     impl Default for GeneratorPoint {
         fn default() -> Self {
-            let mut seed = vec![0_u8; 128];
-            Self::seeded(&mut seed)
+            let mut seed_buffer = vec![0_u8; 128];
+            Self::seed_into(&mut seed_buffer)
         }
     }
 
@@ -322,7 +325,7 @@ pub mod algebra {
         }
 
         /// Construct [`Self`] from a seed.
-        pub fn seeded(seed: &mut [u8]) -> Self {
+        pub fn seed_into(seed: &mut [u8]) -> Self {
             let randnum = {
                 let mut rng = rand::thread_rng();
                 rand::RngCore::fill_bytes(&mut rng, seed);
@@ -407,11 +410,18 @@ impl core::fmt::Debug for SignKey {
     }
 }
 
+impl core::fmt::Debug for VerKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerKey")
+            .field("point_bytes", &self.to_byte_vec())
+            .finish()
+    }
+}
+
 impl From<GroupOrderElement> for SignKey {
     fn from(group_order_element: GroupOrderElement) -> Self {
         Self {
             group_order_element,
-            // bytes: group_order_element.to_byte_vec(),
         }
     }
 }
@@ -683,9 +693,9 @@ mod test {
     ///
     /// This test is important, if it breaks, you have broken the ABI.
     fn sign_key_from_bytes() {
-        let bytes = [
+        let bytes: [u8; 32] = [
             3, 19, 158, 223, 233, 207, 232, 184, 106, 205, 198, 32, 14, 2, 215, 75, 44, 68, 21,
-            249, 101, 117, 78, 111, 104, 212, 94, 56, 36, 156, 44, 59_u8,
+            249, 101, 117, 78, 111, 104, 212, 94, 56, 36, 156, 44, 59,
         ];
         let sign_key = SignKey::from_bytes(bytes.clone()).unwrap();
         assert_eq!(sign_key.to_byte_vec(), bytes);
@@ -714,20 +724,20 @@ mod test {
             .verify(&different_message, &ver_key, gen)
             .unwrap(),
             "Couldn't verify the signature on `different_message`, probably because the signature has become non-deterministic."
-        );
+            );
         assert!(!different_message_signature
             .verify(&message, &ver_key, gen)
             .unwrap(),
             "The signature for two different trivial messages is the exact same. This should never happen, and you should report it"
-        );
+            );
 
         let different_gen = GeneratorPoint::new();
         let different_gen_signature = sign_key.sign(&message).unwrap();
         // assert_ne!(signature, different_gen_signature);
         assert!(
             !different_gen_signature
-                .verify(&message, &ver_key, different_gen)
-                .unwrap(),
+            .verify(&message, &ver_key, different_gen)
+            .unwrap(),
             "Different generator points cannot be paired post-hoc."
         );
 
