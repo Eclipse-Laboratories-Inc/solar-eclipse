@@ -211,6 +211,14 @@ pub mod algebra {
         BIG::randomnum(&BIG::new_ints(&CURVE_ORDER), &mut rng)
     }
 
+    /// Generate a random seed for use with [`GeneratorPoint::from_seed`].
+    pub fn random_seed() -> [u8; 128] {
+        let mut buffer = [0; 128];
+        let mut rng = rand::thread_rng();
+        rand::RngCore::fill_bytes(&mut rng, &mut buffer);
+        buffer
+    }
+
     /// An element of the `G1` group, represented in Affine coordinates via the [`amcl`] library.
     #[derive(Debug, Clone, Copy, PartialEq)]
     #[must_use]
@@ -735,8 +743,8 @@ mod test {
         // assert_ne!(signature, different_gen_signature);
         assert!(
             !different_gen_signature
-            .verify(&message, &ver_key, different_gen)
-            .unwrap(),
+                .verify(&message, &ver_key, different_gen)
+                .unwrap(),
             "Different generator points cannot be paired post-hoc."
         );
 
