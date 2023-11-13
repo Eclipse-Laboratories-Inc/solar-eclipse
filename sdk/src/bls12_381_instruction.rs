@@ -407,6 +407,28 @@ impl VerKey {
     pub fn to_byte_vec(&self) -> Vec<u8> {
         self.point.to_byte_vec()
     }
+
+    /// Verify the BLS12-381 signature provided the following data:
+    ///
+    /// # Arguments
+    /// `message` - the message that had been signed, represented as a slice of bytes.
+    /// `verification_key` - the `public_key` equivalent for the BLS12-381 signature scheme.
+    /// `generator` - the generator that was used to generate the signing key.
+    /// `signature` - the signature that was accompanying the message
+    ///
+    /// It is assumed that the `message`, and `generator` are both
+    /// known to all parties.
+    ///
+    /// # Errors
+    /// - Forwards errors from [`pair::hash`]
+    pub fn verify(
+        &self,
+        message: &[u8],
+        signature: &Signature,
+        generator: GeneratorPoint,
+    ) -> Result<bool, Error> {
+        signature.verify(message, self, generator)
+    }
 }
 
 impl core::fmt::Debug for SignKey {
@@ -553,9 +575,20 @@ impl KeyPair {
 }
 
 pub mod instruction {
-    //! Solana integration.
+    //! Solana integration. This module contains all the necessary
+    //! types and logic to interface with the Solana SDK as a native
+    //! program.  It is recommended to use this to construct the
+    //! instruction which corresponds to the BLS12-381 sig-verify.
+    //!
+    //! See [`new_bls12_381_instruction`] for more details.
 
-    use bytemuck::{bytes_of, Pod, Zeroable};
+    use {
+        super::*,
+        crate::instruction::Instruction,
+        bytemuck::{bytes_of, Pod, Zeroable},
+    };
+
+    const ALIGN_BOUNDARY: usize = 16;
 
     /// Size of the serialized Public (verficiation) key
     pub const PUBKEY_SERIALIZED_SIZE: usize = VerKey::BYTE_REPR_SIZE;
@@ -563,9 +596,10 @@ pub mod instruction {
     pub const SIGNATURE_SERIALIZED_SIZE: usize = Signature::BYTE_REPR_SIZE;
     /// Offset(s) for Signature; not used yet.
     pub const SIGNATURE_OFFSETS_SERIALIZED_SIZE: usize = 14;
+    // TODO: Come up with a more reliable way of ensuring alignment
     /// The Signature offset start, required because [`bytemuck`]
     /// requires structures to be aligned
-    pub const SIGNATURE_OFFSET_START: usize = 16 - SIGNATURE_OFFSETS_SERIALIZED_SIZE; // TODO: Come up with a more reliable way of ensuring alignment
+    pub const SIGNATURE_OFFSET_START: usize = ALIGN_BOUNDARY - SIGNATURE_OFFSETS_SERIALIZED_SIZE;
     /// The start of the data offset. This is a dependent constant, not to be tweaked manually.
     pub const DATA_START: usize = SIGNATURE_OFFSETS_SERIALIZED_SIZE + SIGNATURE_OFFSET_START;
 
@@ -589,8 +623,6 @@ pub mod instruction {
         message_instruction_index: u16,
     }
 
-    use {super::*, crate::instruction::Instruction};
-
     /// Construct an instruction to be used by Solana programs.
     ///
     /// # Errors
@@ -603,16 +635,19 @@ pub mod instruction {
     /// - If any of the length assersions fail.
     /// - If any of the length assets are longer than what would fit into `u16`
     #[must_use]
-    pub fn new_bls_12_381_instruction(key: &KeyPair, message: &[u8]) -> Result<Instruction, Error> {
+    pub fn new_bls_12_381_instruction(
+        key_pair: &KeyPair,
+        message: &[u8],
+    ) -> Result<Instruction, Error> {
         // FIXME: SATURATION IS NOT WHAT WE WANT IN ANY OF THE ARITHMETIC HERE.
-        let signature = key.sign.sign(message)?.to_byte_vec();
+        let signature = key_pair.sign.sign(message)?.to_byte_vec();
         debug_assert_eq!(
             signature.len(),
             SIGNATURE_SERIALIZED_SIZE,
             "Signature length has unexpected value. This is not a safe state, aborting"
         );
 
-        let pubkey = key.verify.to_byte_vec();
+        let pubkey = key_pair.verify.to_byte_vec();
         debug_assert_eq!(
             pubkey.len(),
             PUBKEY_SERIALIZED_SIZE,
