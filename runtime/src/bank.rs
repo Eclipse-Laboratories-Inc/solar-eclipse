@@ -3136,6 +3136,16 @@ impl Bank {
         // Bootstrap validator collects fees until `new_from_parent` is called.
         self.fee_rate_governor = genesis_config.fee_rate_governor.clone();
 
+        // Make sure to activate the account_hash_ignore_slot feature
+        // before calculating any account hashes.
+        if genesis_config
+            .accounts
+            .iter()
+            .any(|(pubkey, _)| pubkey == &feature_set::account_hash_ignore_slot::id())
+        {
+            self.activate_feature(&feature_set::account_hash_ignore_slot::id());
+        }
+
         for (pubkey, account) in genesis_config.accounts.iter() {
             assert!(
                 self.get_account(pubkey).is_none(),
@@ -6935,12 +6945,13 @@ impl Bank {
     pub fn verify_snapshot_bank(
         &self,
         test_hash_calculation: bool,
-        accounts_db_skip_shrink: bool,
+        skip_shrink: bool,
+        force_clean: bool,
         last_full_snapshot_slot: Slot,
         base: Option<(Slot, /*capitalization*/ u64)>,
     ) -> bool {
         let (_, clean_time_us) = measure_us!({
-            let should_clean = !accounts_db_skip_shrink && self.slot() > 0;
+            let should_clean = force_clean || (!skip_shrink && self.slot() > 0);
             if should_clean {
                 info!("Cleaning...");
                 // We cannot clean past the last full snapshot's slot because we are about to
@@ -6960,7 +6971,7 @@ impl Bank {
         });
 
         let (_, shrink_time_us) = measure_us!({
-            let should_shrink = !accounts_db_skip_shrink && self.slot() > 0;
+            let should_shrink = !skip_shrink && self.slot() > 0;
             if should_shrink {
                 info!("Shrinking...");
                 self.rc.accounts.accounts_db.shrink_all_slots(
@@ -7463,7 +7474,6 @@ impl Bank {
             feature_set::curve25519_syscall_enabled::id(),
             feature_set::disable_fees_sysvar::id(),
             feature_set::disable_deploy_of_alloc_free_syscall::id(),
-            feature_set::delay_visibility_of_program_deployment::id(),
         ];
         if !only_apply_transitions_for_new_features
             || FEATURES_AFFECTING_RBPF
