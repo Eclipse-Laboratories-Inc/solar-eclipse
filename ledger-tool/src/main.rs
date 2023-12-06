@@ -47,7 +47,7 @@ use {
         accounts::Accounts,
         accounts_db::CalcAccountsHashDataSource,
         accounts_index::ScanConfig,
-        bank::{Bank, RewardCalculationEvent, TotalAccountsStats},
+        bank::{bank_hash_details, Bank, RewardCalculationEvent, TotalAccountsStats},
         bank_forks::BankForks,
         cost_model::CostModel,
         cost_tracker::CostTracker,
@@ -1121,7 +1121,8 @@ fn main() {
         .validator(is_parsable::<usize>)
         .takes_value(true)
         .default_value("0")
-        .help("How many accounts to add to stress the system. Accounts are ignored in operations related to correctness.");
+        .help("How many accounts to add to stress the system. Accounts are ignored in operations related to correctness.")
+        .hidden(hidden_unless_forced());
     let accounts_filler_size = Arg::with_name("accounts_filler_size")
         .long("accounts-filler-size")
         .value_name("BYTES")
@@ -1129,12 +1130,18 @@ fn main() {
         .takes_value(true)
         .default_value("0")
         .requires("accounts_filler_count")
-        .help("Size per filler account in bytes.");
+        .help("Size per filler account in bytes.")
+        .hidden(hidden_unless_forced());
     let account_paths_arg = Arg::with_name("account_paths")
         .long("accounts")
         .value_name("PATHS")
         .takes_value(true)
         .help("Comma separated persistent accounts location");
+    let accounts_hash_cache_path_arg = Arg::with_name("accounts_hash_cache_path")
+        .long("accounts-hash-cache-path")
+        .value_name("PATH")
+        .takes_value(true)
+        .help("Use PATH as accounts hash cache location");
     let accounts_index_path_arg = Arg::with_name("accounts_index_path")
         .long("accounts-index-path")
         .value_name("PATH")
@@ -1564,6 +1571,7 @@ fn main() {
             .about("Verify the ledger")
             .arg(&no_snapshot_arg)
             .arg(&account_paths_arg)
+            .arg(&accounts_hash_cache_path_arg)
             .arg(&accounts_index_path_arg)
             .arg(&halt_at_slot_arg)
             .arg(&limit_load_slot_count_from_snapshot_arg)
@@ -1627,11 +1635,20 @@ fn main() {
                     .takes_value(false)
                     .help("After verifying the ledger, print some information about the account stores"),
             )
+            .arg(
+                Arg::with_name("write_bank_file")
+                    .long("write-bank-file")
+                    .takes_value(false)
+                    .help("After verifying the ledger, write a file that contains the information \
+                        that went into computing the completed bank's bank hash. The file will be \
+                        written within <LEDGER_DIR>/bank_hash_details/"),
+            )
         ).subcommand(
             SubCommand::with_name("graph")
             .about("Create a Graphviz rendering of the ledger")
             .arg(&no_snapshot_arg)
             .arg(&account_paths_arg)
+            .arg(&accounts_hash_cache_path_arg)
             .arg(&accounts_index_bins)
             .arg(&accounts_index_limit)
             .arg(&disable_disk_index)
@@ -1666,6 +1683,7 @@ fn main() {
             .about("Create a new ledger snapshot")
             .arg(&no_snapshot_arg)
             .arg(&account_paths_arg)
+            .arg(&accounts_hash_cache_path_arg)
             .arg(&accounts_index_bins)
             .arg(&accounts_index_limit)
             .arg(&disable_disk_index)
@@ -1858,6 +1876,7 @@ fn main() {
             .about("Print account stats and contents after processing the ledger")
             .arg(&no_snapshot_arg)
             .arg(&account_paths_arg)
+            .arg(&accounts_hash_cache_path_arg)
             .arg(&accounts_index_bins)
             .arg(&accounts_index_limit)
             .arg(&disable_disk_index)
@@ -1890,6 +1909,7 @@ fn main() {
             .about("Print capitalization (aka, total supply) while checksumming it")
             .arg(&no_snapshot_arg)
             .arg(&account_paths_arg)
+            .arg(&accounts_hash_cache_path_arg)
             .arg(&accounts_index_bins)
             .arg(&accounts_index_limit)
             .arg(&disable_disk_index)
@@ -2590,6 +2610,7 @@ fn main() {
                     ..ProcessOptions::default()
                 };
                 let print_accounts_stats = arg_matches.is_present("print_accounts_stats");
+                let write_bank_file = arg_matches.is_present("write_bank_file");
                 let genesis_config = open_genesis_config_by(&ledger_path, arg_matches);
                 info!("genesis hash: {}", genesis_config.hash());
 
@@ -2614,6 +2635,14 @@ fn main() {
                 if print_accounts_stats {
                     let working_bank = bank_forks.read().unwrap().working_bank();
                     working_bank.print_accounts_stats();
+                }
+                if write_bank_file {
+                    let working_bank = bank_forks.read().unwrap().working_bank();
+                    bank_hash_details::write_bank_hash_details_file(&working_bank)
+                        .map_err(|err| {
+                            warn!("Unable to write bank hash_details file: {err}");
+                        })
+                        .ok();
                 }
                 exit_signal.store(true, Ordering::Relaxed);
                 system_monitor_service.join().unwrap();

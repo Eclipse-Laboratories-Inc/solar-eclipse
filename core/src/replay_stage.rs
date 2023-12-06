@@ -59,7 +59,7 @@ use {
     solana_rpc_client_api::response::SlotUpdate,
     solana_runtime::{
         accounts_background_service::AbsRequestSender,
-        bank::{Bank, NewBankOptions},
+        bank::{bank_hash_details, Bank, NewBankOptions},
         bank_forks::{BankForks, MAX_ROOT_DISTANCE_FOR_VOTE_ONLY},
         commitment::BlockCommitmentCache,
         prioritization_fee_cache::PrioritizationFeeCache,
@@ -1340,14 +1340,22 @@ impl ReplayStage {
                         );
                     }
 
-
                     // Should not dump slots for which we were the leader
                     if Some(*my_pubkey) == leader_schedule_cache.slot_leader_at(*duplicate_slot, None) {
-                            panic!("We are attempting to dump a block that we produced. \
-                                This indicates that we are producing duplicate blocks, \
-                                or that there is a bug in our runtime/replay code which \
-                                causes us to compute different bank hashes than the rest of the cluster. \
-                                We froze slot {duplicate_slot} with hash {frozen_hash:?} while the cluster hash is {correct_hash}");
+                        if let Some(bank) = bank_forks.read().unwrap().get(*duplicate_slot) {
+                            bank_hash_details::write_bank_hash_details_file(&bank)
+                                .map_err(|err| {
+                                    warn!("Unable to write bank hash details file: {err}");
+                                })
+                                .ok();
+                        } else {
+                            warn!("Unable to get bank for slot {duplicate_slot} from bank forks");
+                        }
+                        panic!("We are attempting to dump a block that we produced. \
+                            This indicates that we are producing duplicate blocks, \
+                            or that there is a bug in our runtime/replay code which \
+                            causes us to compute different bank hashes than the rest of the cluster. \
+                            We froze slot {duplicate_slot} with hash {frozen_hash:?} while the cluster hash is {correct_hash}");
                     }
 
                     let attempt_no = purge_repair_slot_counter
@@ -1502,6 +1510,11 @@ impl ReplayStage {
                     let bank = w_bank_forks
                         .remove(*slot)
                         .expect("BankForks should not have been purged yet");
+                    bank_hash_details::write_bank_hash_details_file(&bank)
+                        .map_err(|err| {
+                            warn!("Unable to write bank hash details file: {err}");
+                        })
+                        .ok();
                     ((*slot, bank.bank_id()), bank)
                 })
                 .unzip()
