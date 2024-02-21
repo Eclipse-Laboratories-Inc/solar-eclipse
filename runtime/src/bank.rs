@@ -4690,7 +4690,7 @@ impl Bank {
         enable_request_heap_frame_ix: bool,
     ) -> u64 {
         // Fee based on compute units and signatures
-        const BASE_CONGESTION: f64 = 5_000.0;
+        const BASE_CONGESTION: f64 = 50.0;
         let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
         let congestion_multiplier = if lamports_per_signature == 0 {
             0.0 // test only

@@ -84,7 +84,7 @@ impl Default for FeeRateGovernor {
             target_lamports_per_signature: DEFAULT_TARGET_LAMPORTS_PER_SIGNATURE,
             target_signatures_per_slot: DEFAULT_TARGET_SIGNATURES_PER_SLOT,
             min_lamports_per_signature: 0,
-            max_lamports_per_signature: 0,
+            max_lamports_per_signature: 50,
             burn_percent: DEFAULT_BURN_PERCENT,
         }
     }
