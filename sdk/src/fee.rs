@@ -91,7 +91,7 @@ impl FeeStructure {
         } else if remove_congestion_multiplier {
             1.0 // multiplier that has no effect
         } else {
-            const BASE_CONGESTION: f64 = 5_000.0;
+            const BASE_CONGESTION: f64 = 50.0;
             let current_congestion = BASE_CONGESTION.max(lamports_per_signature as f64);
             BASE_CONGESTION / current_congestion
         };
@@ -139,7 +139,7 @@ impl FeeStructure {
 
 impl Default for FeeStructure {
     fn default() -> Self {
-        Self::new(0.000005, 0.0, vec![(1_400_000, 0.0)])
+        Self::new(0.00000005, 0.0, vec![(1_400_000, 0.0)])
     }
 }
 
