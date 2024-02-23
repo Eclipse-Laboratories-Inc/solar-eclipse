@@ -33,6 +33,8 @@
 //! It offers a high-level API that signs transactions
 //! on behalf of the caller, and a low-level API for when they have
 //! already been signed and verified.
+use solana_accounts_db::inline_spl_token;
+use solana_sdk::native_token::sol_to_lamports;
 #[allow(deprecated)]
 use solana_sdk::recent_blockhashes_account;
 pub use solana_sdk::reward_type::RewardType;
@@ -7881,6 +7883,35 @@ impl Bank {
             warn!("Bank already reached max tick height, cannot fill it with more ticks");
         }
     }
+   
+    fn reconfigure_token2_native_mint(&mut self) {
+        let mut native_mint_account = solana_sdk::account::AccountSharedData::from(Account {
+            owner: inline_spl_token::id(),
+            data: inline_spl_token::native_mint::ACCOUNT_DATA.to_vec(),
+            lamports: sol_to_lamports(1.),
+            executable: false,
+            rent_epoch: self.epoch() + 1,
+        });
+
+        let store = if let Some(existing_native_mint_account) =
+            self.get_account_with_fixed_root(&inline_spl_token::native_mint::id())
+        {
+            if existing_native_mint_account.owner() == &solana_sdk::system_program::id() {
+                native_mint_account.set_lamports(existing_native_mint_account.lamports());
+                true
+            } else {
+                false
+            }
+        } else {
+            self.capitalization
+                .fetch_add(native_mint_account.lamports(), Relaxed);
+            true
+        };
+
+        if store {
+            self.store_account(&inline_spl_token::native_mint::id(), &native_mint_account);
+        }
+    }
 
     // This is called from snapshot restore AND for each epoch boundary
     // The entire code path herein must be idempotent
@@ -7889,6 +7920,7 @@ impl Bank {
         caller: ApplyFeatureActivationsCaller,
         debug_do_not_add_builtins: bool,
     ) {
+        self.reconfigure_token2_native_mint();
         use ApplyFeatureActivationsCaller::*;
         let allow_new_activations = match caller {
             FinishInit => false,
