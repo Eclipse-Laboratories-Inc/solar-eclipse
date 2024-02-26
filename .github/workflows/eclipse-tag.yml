@@ -1,0 +1,70 @@
+name: rust
+
+on:
+  push:
+    tags:
+      - v*
+
+# env:
+#   # Setting an environment variable with the value of a configuration variable
+#   env_var: ${{ vars.ENV_CONTEXT_VAR }}
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        platform: [self-hosted]
+    container:
+      image: public.ecr.aws/lts/ubuntu:22.04
+      volumes:
+        - my_docker_volume:/volume_mount
+    runs-on: ${{ matrix.platform }}
+    env:
+      ENV: dev
+
+    steps:
+    - name: Install docker cli
+      run: |
+        apt update; apt install -y curl unzip
+        curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+        unzip awscliv2.zip
+        ./aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli --update
+        curl https://download.docker.com/linux/ubuntu/dists/jammy/pool/stable/amd64/docker-ce-cli_25.0.3-1~ubuntu.22.04~jammy_amd64.deb -o docker-ce-cli.deb
+        dpkg -i docker-ce-cli.deb
+
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4 # More information on this action can be found below in the 'AWS Credentials' section
+      with:
+        aws-region: us-east-2
+        # role-to-assume: ${{ secrets.ASSUME_ROLE }}
+        # aws-session-token: upload
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+    
+    # - name: Pull and push
+    #   run: |
+    #     docker pull public.ecr.aws/lts/ubuntu:22.04
+    #     docker images
+    #     docker tag public.ecr.aws/lts/ubuntu:22.04 ${{ secrets.ECR }}/${{ env.ENV }}/eclipse:${GITHUB_REF_NAME}
+    #     docker images
+    #     aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin "${{ secrets.ECR }}"
+    #     docker push ${{ secrets.ECR }}/${{ env.ENV }}/eclipse:${GITHUB_REF_NAME}
+
+    - name: Build and push
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./container/Dockerfile
+        push: true
+        tags: ${{ secrets.ECR }}/${{ env.ENV }}/eclipse:${{ github.ref_name }}
