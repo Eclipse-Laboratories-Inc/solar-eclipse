@@ -1,0 +1,61 @@
+name: rust
+
+on:
+  push:
+    branches:
+      - disable
+      # - 'eclipse/**'
+      # - workflow
+  pull_request:
+    branches:
+      - disable
+      # - 'eclipse/**'
+
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        platform: [self-hosted]
+    container:
+      image: public.ecr.aws/lts/ubuntu:22.04
+      volumes:
+        - my_docker_volume:/volume_mount
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4 # More information on this action can be found below in the 'AWS Credentials' section
+      with:
+        aws-region: us-east-2
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Checkout repo
+      uses: actions/checkout@v3
+
+    - name: Run tests
+      run: docker ps -a
+
+    - name: Run tests
+      env:
+        ECR: ${{ secrets.ECR }}
+      run: ./container/build.sh
+
+    # - name: Configure AWS credentials
+    #   uses: aws-actions/configure-aws-credentials@v2
+    #   with:
+    #     aws-region: us-east-1
+
+    # - name: Login to Amazon ECR
+    #   uses: aws-actions/amazon-ecr-login@v1
+    #   with:
+    #       registry-type: public
