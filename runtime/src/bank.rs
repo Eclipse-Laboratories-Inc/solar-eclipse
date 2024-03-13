@@ -7884,7 +7884,6 @@ impl Bank {
         }
     }
    
-    fn reconfigure_token2_native_mint(&mut self) {
         let mut native_mint_account = solana_sdk::account::AccountSharedData::from(Account {
             owner: inline_spl_token::id(),
             data: inline_spl_token::native_mint::ACCOUNT_DATA.to_vec(),
@@ -7920,7 +7919,6 @@ impl Bank {
         caller: ApplyFeatureActivationsCaller,
         debug_do_not_add_builtins: bool,
     ) {
-        self.reconfigure_token2_native_mint();
         use ApplyFeatureActivationsCaller::*;
         let allow_new_activations = match caller {
             FinishInit => false,
